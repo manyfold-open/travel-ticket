@@ -1,11 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { handleFetch } from '../../worker/index.mjs'
+import { handleFetch as workerHandleFetch } from '../../worker/index.mjs'
+import { handleTravelTicketAccess } from '../../worker/access-control.mjs'
 import { saveTripFiles } from '../../worker/storage.mjs'
 
 class MockKV {
   constructor() { this.store = new Map() }
   async put(key, value) { this.store.set(key, value) }
+  async delete(key) { this.store.delete(key) }
   async get(key, type) {
     if (!this.store.has(key)) return null
     const value = this.store.get(key)
@@ -44,7 +46,8 @@ const makeEnv = () => {
     TRIPS_KV: new MockKV(),
     TRIPS_SITES: new MockKV(),
     TRIP_JOBS: new MockTripJobs(),
-    TURNSTILE_SECRET_KEY: 'sk_test',
+    ADMIN_SETTINGS_PASSWORD: 'test-admin-signing-secret-with-enough-entropy',
+    ACCESS_PASSCODE: '246810',
     ASSETS: {
       fetch: async (request) => {
         assetRequests.push(new URL(request.url).pathname)
@@ -55,13 +58,46 @@ const makeEnv = () => {
   }
 }
 
+async function handleFetch(request, env) {
+  const login = await handleTravelTicketAccess(new Request('https://example.com/api/access/login', {
+    method: 'POST',
+    body: JSON.stringify({ passcode: env.ACCESS_PASSCODE }),
+  }), env)
+  assert.equal(login.status, 200)
+  const accessCookie = login.headers.get('set-cookie').split(';')[0]
+  const headers = new Headers(request.headers)
+  const existingCookie = headers.get('cookie')
+  headers.set('cookie', existingCookie ? `${existingCookie}; ${accessCookie}` : accessCookie)
+  return workerHandleFetch(new Request(request, { headers }), env)
+}
+
+test('handleFetch: protects visitor pages and APIs while keeping access and settings public', async () => {
+  const env = makeEnv()
+  const document = await workerHandleFetch(new Request('https://example.com/?trip=abc'), env)
+  assert.equal(document.status, 302)
+  assert.equal(new URL(document.headers.get('location')).pathname, '/access')
+  assert.equal(new URL(document.headers.get('location')).searchParams.get('next'), '/?trip=abc')
+
+  const api = await workerHandleFetch(new Request('https://example.com/api/config'), env)
+  assert.equal(api.status, 401)
+  assert.equal((await api.json()).code, 'ACCESS_REQUIRED')
+
+  const access = await workerHandleFetch(new Request('https://example.com/access'), env)
+  assert.equal(access.status, 200)
+  assert.equal(env.assetRequests.at(-1), '/access')
+
+  const settings = await workerHandleFetch(new Request('https://example.com/settings'), env)
+  assert.equal(settings.status, 200)
+  assert.equal(env.assetRequests.at(-1), '/settings')
+})
+
 test('handleFetch: GET /api/config routes to handleConfig', async () => {
   const env = makeEnv()
-  env.TURNSTILE_SITE_KEY = '0xsite'
   const res = await handleFetch(new Request('https://example.com/api/config'), env)
   assert.equal(res.status, 200)
   const body = await res.json()
-  assert.equal(body.turnstile_site_key, '0xsite')
+  assert.equal(body.ready, false)
+  assert.deepEqual(body.services, { manyfold: false, connectors: false })
 })
 
 test('handleFetch: unknown API path -> 404 JSON', async () => {

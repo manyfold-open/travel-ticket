@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#efe0c3">
+  <title>Travel Ticket · Access</title>
+  <link rel="stylesheet" href="/access.css">
+</head>
+<body>
+  <main class="page">
+    <div class="ticket-stack">
+      <section class="ticket" aria-labelledby="access-title">
+        <div class="main">
+          <p class="eyebrow">PRIVATE DEPARTURE / ACCESS REQUIRED</p>
+          <h1 id="access-title">輸入<br><span>6 位口令</span></h1>
+          <p class="lede">這個 Travel Ticket 工作區受到保護。輸入口令後即可建立、查看和管理行程。</p>
+
+          <form id="access-form">
+            <label for="passcode">6-digit access code</label>
+            <input id="passcode" name="passcode" type="password"
+              inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
+              autocomplete="one-time-code" aria-describedby="access-message"
+              required autofocus>
+            <button id="unlock" type="submit">驗票入站 · Open Travel Ticket</button>
+            <p id="access-message" class="message" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <aside class="stub">
+          <p class="stub-title">BOARDING PASS</p>
+          <dl>
+            <div><dt>Product</dt><dd>Travel Ticket</dd></div>
+            <div><dt>Access</dt><dd>Private</dd></div>
+            <div><dt>Session</dt><dd>7 days</dd></div>
+          </dl>
+          <div class="stamp">Code required</div>
+          <p class="admin-note">管理員可以前往 <a href="/settings">Settings</a> 配置或更换访问口令。</p>
+        </aside>
+      </section>
+    </div>
+  </main>
+  <script src="/access.js" defer></script>
+</body>
+</html>

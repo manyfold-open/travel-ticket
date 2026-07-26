@@ -28,12 +28,10 @@ binding = "TRIPS_KV"
 [[kv_namespaces]]
 binding = "TRIPS_SITES"
 
-# Per-IP rate limit on POST /api/trips (worker/routes/create-trip.mjs) — a
-# second, cheaper gate ahead of Turnstile: each trip triggers 5-8 minutes of
-# billed LLM/agent work, so even a Turnstile-passing high-frequency requester
-# shouldn't be able to hammer this endpoint. Native Workers binding (GA), no
-# custom domain/zone required (this Worker only has a workers.dev hostname,
-# so the dashboard-level WAF "Rate limiting rules" feature doesn't apply here).
+# Per-IP rate limit on POST /api/trips (worker/routes/create-trip.mjs): each
+# trip triggers 5-8 minutes of billed LLM/agent work, so a high-frequency
+# requester should not be able to hammer this endpoint. The native Workers
+# binding needs no custom domain or zone, unlike dashboard WAF rate limits.
 [[ratelimits]]
 name = "TRIPS_RATE_LIMITER"
 namespace_id = "1001"

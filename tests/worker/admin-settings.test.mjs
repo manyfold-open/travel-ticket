@@ -14,6 +14,7 @@ class MockKV {
 const makeEnv = () => ({
   ADMIN_SETTINGS_PASSWORD: 'correct horse battery staple',
   TRIPS_KV: new MockKV(),
+  ACCESS_PASSCODE: '246810',
   MF_API_URL: 'https://api.manyfold.ai/api',
   MF_AGENT_ID: 'agt_source',
   MF_API_TOKEN: 'token-from-environment',
@@ -74,7 +75,11 @@ test('admin settings: GET never returns a configured secret value', async () => 
   }), env)
   assert.equal(response.status, 200)
   const body = await response.json()
+  const passcode = body.fields.find((field) => field.key === 'ACCESS_PASSCODE')
   const token = body.fields.find((field) => field.key === 'MF_API_TOKEN')
+  assert.equal(passcode.configured, true)
+  assert.equal(passcode.source, 'environment')
+  assert.equal(passcode.value, '')
   assert.equal(token.configured, true)
   assert.equal(token.source, 'environment')
   assert.equal(token.value, '')
@@ -89,6 +94,7 @@ test('admin settings: saves encrypted overrides and resolves them for runtime ca
     headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
     body: JSON.stringify({
       values: {
+        ACCESS_PASSCODE: '654321',
         MF_API_URL: 'https://gateway.example/api',
         MF_API_TOKEN: 'token-from-settings',
       },
@@ -103,7 +109,39 @@ test('admin settings: saves encrypted overrides and resolves them for runtime ca
   const runtime = await resolveRuntimeEnv(env)
   assert.equal(runtime.MF_API_URL, 'https://gateway.example/api')
   assert.equal(runtime.MF_API_TOKEN, 'token-from-settings')
+  assert.equal(runtime.ACCESS_PASSCODE, '654321')
   assert.equal(runtime.AGENT_BRIEF, 'agt_brief')
+})
+
+test('admin settings: requires an exact 6-digit application access code', async () => {
+  const env = makeEnv()
+  const { cookie } = await login(env)
+  const response = await handleAdminSettings(new Request('https://example.com/api/admin/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
+    body: JSON.stringify({ values: { ACCESS_PASSCODE: '123' } }),
+  }), env)
+  assert.equal(response.status, 400)
+  const body = await response.json()
+  assert.match(body.details.join(' '), /exactly 6 digits/)
+})
+
+test('admin settings: ignores unknown runtime fields', async () => {
+  const env = makeEnv()
+  const { cookie } = await login(env)
+  const response = await handleAdminSettings(new Request('https://example.com/api/admin/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
+    body: JSON.stringify({
+      values: {
+        UNSUPPORTED_FEATURE_KEY: 'ignored-value',
+      },
+    }),
+  }), env)
+  assert.equal(response.status, 200)
+
+  const runtime = await resolveRuntimeEnv(env)
+  assert.equal(runtime.UNSUPPORTED_FEATURE_KEY, undefined)
 })
 
 test('admin settings: rejects cross-site writes', async () => {

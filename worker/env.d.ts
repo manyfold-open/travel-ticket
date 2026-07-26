@@ -5,6 +5,7 @@ export interface Env {
   TRIP_JOBS: DurableObjectNamespace<import('./trip-job').TripJob>
   TRIP_TASK_QUEUE: Queue<import('./trip-job').TripQueueMessage>
   ADMIN_SETTINGS_PASSWORD?: string
+  ACCESS_PASSCODE?: string
 
   // Manyfold A2A role peers.
   MF_API_URL: string
@@ -22,11 +23,6 @@ export interface Env {
   COMPOSIO_GMAIL_AUTH_CONFIG_ID?: string
   COMPOSIO_CALENDAR_AUTH_CONFIG_ID?: string
   COMPOSIO_NOTION_AUTH_CONFIG_ID?: string
-
-  // Turnstile. SITE_KEY is public/client-side (served via GET /api/config);
-  // SECRET_KEY is server-side-only and checked by worker/routes/create-trip.mjs.
-  TURNSTILE_SITE_KEY?: string
-  TURNSTILE_SECRET_KEY?: string
 
   // Cloudflare native Workers Rate Limiting binding (GA) — per-IP gate on
   // POST /api/trips (worker/routes/create-trip.mjs). Optional so local/test

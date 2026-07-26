@@ -16,7 +16,8 @@ npm run dev
 
 打开：
 
-- 应用：`http://localhost:8788`
+- 门禁：`http://localhost:8788/access`
+- 应用：`http://localhost:8788`（验证 access code 后）
 - 配置：`http://localhost:8788/settings`
 
 `.dev.vars` 只保存 bootstrap 密码且不会提交：
@@ -25,16 +26,16 @@ npm run dev
 ADMIN_SETTINGS_PASSWORD=replace-with-a-long-random-password
 ```
 
-第一次进入 `/settings` 后配置应用 credential。本地 `/api/config` 返回
-`ready:false` 是正常的，直到 Manyfold 和 Turnstile 必填项完整。
+第一次进入 `/settings` 后先配置 6 位 access code 和应用 credential。口令未配置
+时应用保持关闭，业务 API 返回 `ACCESS_NOT_CONFIGURED`；不会自动公开。
 
 ## `/settings` 配置
 
 | 分类 | 配置 |
 |---|---|
+| Access | 必填的 6 位应用访问口令 |
 | Manyfold | API URL、source agent、API token、五个 role peers |
 | Composio | project key、Gmail/Calendar/Notion auth config IDs |
-| Turnstile | site key、secret key |
 
 只有 `ADMIN_SETTINGS_PASSWORD` 必须先作为环境 secret 存在。页面保存的配置使用
 AES-GCM 加密后写入 `TRIPS_KV`；secret 字段只返回 configured/source 状态，不回显
@@ -42,6 +43,11 @@ AES-GCM 加密后写入 `TRIPS_KV`；secret 字段只返回 configured/source �
 
 登录 session 有效八小时，cookie 为 `HttpOnly`、`SameSite=Strict`，HTTPS 下同时为
 `Secure`。写请求拒绝 cross-site origin。
+
+访客 access session 有效七天，同样使用 `HttpOnly`、`SameSite=Strict` cookie。
+cookie 签名使用 `ADMIN_SETTINGS_PASSWORD`，并包含当前 access code 的版本摘要；
+更换口令会立即让旧 cookie 失效。每个 IP 在十分钟内连续五次输入错误后会被临时
+锁定，计数只保存摘要 key，不保存输入的口令。
 
 修改 bootstrap 密码会改变配置加密密钥。轮换前先确保关键配置仍有 Worker secret
 fallback；轮换后重新登录并保存设置。
@@ -74,7 +80,7 @@ GitHub `production` environment 必须配置：
 - `CLOUDFLARE_ACCOUNT_ID`
 - `ADMIN_SETTINGS_PASSWORD`
 
-Manyfold、Composio 和 Turnstile credential 通过 `/settings` 管理，不作为 GitHub
+Manyfold 和 Composio credential 通过 `/settings` 管理，不作为 GitHub
 deployment secrets。
 
 push 到 `main` 或手动执行 `workflow_dispatch` 后，workflow 会：
@@ -96,22 +102,29 @@ npm run check:worker
 `npm run check` 包含 TypeScript、自动化测试、主题对比、当前文档链接、浏览器脚本
 语法和 Shell 语法。`check:worker` 只做 Wrangler bundle dry-run，不修改 Cloudflare。
 
-Smoke test 验证：
+Smoke test 默认验证：
 
-- 首页是 Travel Ticket 应用而非 Cloudflare 错误页；
-- `/settings` 可访问；
-- `/api/config` 为 `ready:true`；
-- 未知 trip 返回 404。
+- 未登录主页跳转到 `/access`；
+- access status、登录页面和匿名 API 拒绝行为正常；
+- `/settings` 可访问。
 
-部署后的资源传播可能短暂延迟，脚本会对页面语义做有限重试。readiness 未通过时
-workflow 应失败，不发布“看似在线但不能出票”的版本。
+提供口令时会额外验证登录后的首页、`/api/config` 和未知 trip 404：
+
+```bash
+TRAVEL_TICKET_ACCESS_PASSCODE=123456 npm run smoke -- \
+  https://mf-travel-ticket.netmind-ai.workers.dev
+```
+
+部署后的资源传播可能短暂延迟，脚本会对页面语义做有限重试。运行配置可在部署后
+通过 `/settings` 补齐。
 
 ## Readiness
 
-`/api/config.ready` 只有同时满足以下条件才为 `true`：
+`/api/access/status.ready` 要求 6 位 access code 与
+`ADMIN_SETTINGS_PASSWORD` 同时存在。`/api/config.ready` 只有满足以下条件才为
+`true`：
 
-- Manyfold URL、source agent、token 和五个 role peers 全部存在；
-- Turnstile site key 和 secret key 同时存在。
+- Manyfold URL、source agent、token 和五个 role peers 全部存在。
 
 Composio 是可选项，不影响总体 readiness；未配置时 connector 功能显示不可用或
 skipped。
@@ -120,8 +133,14 @@ skipped。
 
 ### 首页显示服务尚未配置
 
-检查 `/api/config` 中 `services.manyfold` 和 `services.turnstile`。进入
-`/settings` 补齐相应字段，保存后重新读取。
+检查 `/api/config` 中 `services.manyfold`。进入 `/settings` 补齐相应字段，
+保存后重新读取。
+
+### Access 页面显示口令未配置
+
+进入 `/settings`，使用管理密码登录后填写正好 6 位数字并保存。Settings 与
+access gate 相互独立，所以即使访客门禁未配置，管理员仍能进入 Settings 完成
+bootstrap。
 
 ### Agent 一直 working
 
@@ -148,6 +167,8 @@ Durable Object terminal state 保留七天。状态过期后会返回 404；生�
 
 - 不把 token、密码、OAuth credential 写入 TOML、Markdown、Queue 或浏览器资源。
 - 不在 `/api/config` 或 `/settings` API 回传 secret。
+- access code 只保存在加密 Settings 或环境 secret 中，不写入静态资源。
+- 所有业务页面、生成的 trip 文件和 API 都必须经过服务端 access guard。
 - connector account 必须按 `visitorId` 隔离，不允许回退到 owner 默认账号。
-- 保留 Rate Limiting 和 Turnstile 两层昂贵请求保护。
+- 保留每 IP Rate Limiting，限制昂贵的 trip 创建请求。
 - 不新增 cron、Cloudflare Workflows 或本地生产部署入口。

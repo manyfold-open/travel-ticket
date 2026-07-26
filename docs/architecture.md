@@ -7,7 +7,8 @@
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] --> Worker["Cloudflare Worker"]
+  Browser["Browser"] --> Gate["6-digit Access Gate"]
+  Gate --> Worker["Cloudflare Worker"]
   Worker --> Assets["Static Assets"]
   Worker --> Job["TripJob Durable Object"]
   Job --> Queue["Cloudflare Queue"]
@@ -37,11 +38,15 @@ flowchart LR
 | 路由 | 方法 | 作用 |
 |---|---|---|
 | `/` | GET | 静态应用入口 |
+| `/access` | GET | 6 位访问口令页面 |
+| `/api/access/status` | GET | 查询门禁配置与当前 session |
+| `/api/access/login` | POST | 验证口令并签发访问 cookie |
+| `/api/access/logout` | POST | 清除访问 cookie |
 | `/settings` | GET | 管理配置页面 |
 | `/api/admin/session` | POST/DELETE | 登录和退出配置页面 |
 | `/api/admin/settings` | GET/PUT | 读取和保存配置 |
 | `/api/config` | GET | 仅返回公开配置与 readiness |
-| `/api/trips` | POST | Turnstile 校验后创建 draft |
+| `/api/trips` | POST | 按 IP 限流后创建 draft |
 | `/api/trips/:id` | GET | 获取 trip 和 workflow 状态 |
 | `/api/trips/:id/start` | POST | 幂等启动 draft |
 | `/api/trips/:id/connectors` | GET | 获取全部 connector 状态 |
@@ -56,17 +61,23 @@ JSON API 响应禁止缓存并带 `X-Content-Type-Options: nosniff`。不存在�
 分别返回受控 JSON 或 HTML 404。旧的 `.html` 页面、`/status` 和 `/connect/*`
 API 暂时保留为兼容重定向或别名。
 
+除 `/access`、`/settings` 及其必要 API/静态资源外，所有页面、生成的 trip 文件
+和业务 API 都经过服务端 access guard。页面未登录时 302 到 `/access?next=...`；
+API 返回 401 `ACCESS_REQUIRED`。口令尚未配置时 API 使用 503
+`ACCESS_NOT_CONFIGURED`，不会退化成公开访问。
+
 ## 创建一次 trip
 
-1. 浏览器读取 `/api/config`。Manyfold 或 Turnstile 未配置完整时，出票按钮不可用。
-2. `POST /api/trips` 先执行 Workers Rate Limiting，再验证 Turnstile。
-3. Worker 创建以 `tripId` 命名的 draft `TripJob`，但不发布 Queue。
-4. 浏览器进入 `/trips/:id/connect`；visitor identity 保存在 `HttpOnly` cookie，
+1. 访客在 `/access` 输入 6 位口令，取得绑定当前口令版本的签名 cookie。
+2. 浏览器读取 `/api/config`。Manyfold 未配置完整时，出票按钮不可用。
+3. `POST /api/trips` 执行 Workers Rate Limiting。
+4. Worker 创建以 `tripId` 命名的 draft `TripJob`，但不发布 Queue。
+5. 浏览器进入 `/trips/:id/connect`；visitor identity 保存在 `HttpOnly` cookie，
    connector API 会验证当前 visitor 是该 trip 的 owner。
-5. 用户完成授权或选择跳过后，`POST /api/trips/:id/start` 幂等进入 queued。
-6. `TripJob` 发布可运行任务；Queue consumer 取得租约并提交结果。
-7. 浏览器在 `/trips/:id/progress` 轮询 canonical trip resource。
-8. `render` 写入 `TRIPS_SITES`，浏览器跳转到 `/trips/:id/`。
+6. 用户完成授权或选择跳过后，`POST /api/trips/:id/start` 幂等进入 queued。
+7. `TripJob` 发布可运行任务；Queue consumer 取得租约并提交结果。
+8. 浏览器在 `/trips/:id/progress` 轮询 canonical trip resource。
+9. `render` 写入 `TRIPS_SITES`，浏览器跳转到 `/trips/:id/`。
 
 ## 数据归属
 
@@ -74,7 +85,7 @@ API 暂时保留为兼容重定向或别名。
 |---|---|---|
 | `TRIP_JOBS` | workflow 参数、任务状态、紧凑输出、错误 | 强一致 |
 | `TRIPS_SITES` | 生成的 HTML/CSS/JS/manifest/JSON | 最终产物 |
-| `TRIPS_KV` | 加密 runtime settings | 配置 |
+| `TRIPS_KV` | 加密 runtime settings、短期 access 登录失败计数 | 配置与门禁 |
 | `TRIP_TASK_QUEUE` | `{jobId, taskId}` 通知 | at-least-once |
 | `ASSETS` | 入口、进度和设置页 | 构建时静态资源 |
 

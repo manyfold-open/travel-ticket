@@ -32,6 +32,10 @@ npm run dev   # → http://localhost:8788
 明確啟動 Workflow → 即時看每個 agent 的進度 → 完成後打開
 `/trips/<id>/`。`/settings`、Durable Object、Queue 和 KV 都在同一個 Worker origin。
 
+公開應用由 6 位數 access code 保護。第一次使用先進入 `/settings` 設定口令，
+之後訪客從 `/access` 驗票進入；未驗證的頁面請求會跳轉到 access page，API 會
+回傳 `ACCESS_REQUIRED`。
+
 ### 本地 Studio（開發工具）
 
 ```bash
@@ -206,7 +210,8 @@ ADMIN_SETTINGS_PASSWORD=choose-a-long-random-password
 ```
 
 執行 `npm run dev` 後進入 `http://localhost:8788/settings`，可配置 Manyfold role
-agents、Manyfold token、Composio 和 Turnstile。密鑰會加密保存在 KV，頁面不會回顯。
+agents、Manyfold token、Composio 和必要的 6 位 access code。密鑰會加密保存在
+KV，頁面不會回顯。
 
 生產部署只由 [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)
 執行：push 到 `main`，或在 GitHub Actions 手動觸發 workflow。Repository 的

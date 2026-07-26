@@ -1,0 +1,77 @@
+(() => {
+  const api = '/api/access'
+  const form = document.querySelector('#access-form')
+  const passcode = document.querySelector('#passcode')
+  const button = document.querySelector('#unlock')
+  const message = document.querySelector('#access-message')
+
+  const destination = () => {
+    const value = new URLSearchParams(location.search).get('next') || '/'
+    if (!value.startsWith('/') || value.startsWith('//') || /^\/access(?:[/?#]|$)/.test(value)) return '/'
+    return value
+  }
+
+  const setMessage = (text = '', kind = '') => {
+    message.textContent = text
+    message.className = `message${kind ? ` ${kind}` : ''}`
+  }
+
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${api}${path}`, {
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    })
+    const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+    if (!response.ok) {
+      const error = new Error(body.error || `HTTP ${response.status}`)
+      error.status = response.status
+      throw error
+    }
+    return body
+  }
+
+  passcode.addEventListener('input', () => {
+    passcode.value = passcode.value.replace(/\D/g, '').slice(0, 6)
+    if (message.classList.contains('error')) setMessage()
+  })
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    if (!/^\d{6}$/.test(passcode.value)) {
+      setMessage('請輸入完整的 6 位數字。', 'error')
+      passcode.focus()
+      return
+    }
+    button.disabled = true
+    setMessage('正在驗票…')
+    try {
+      await request('/login', {
+        method: 'POST',
+        body: JSON.stringify({ passcode: passcode.value }),
+      })
+      location.replace(destination())
+    } catch (error) {
+      setMessage(error.message, 'error')
+      passcode.select()
+    } finally {
+      button.disabled = false
+    }
+  })
+
+  request('/status')
+    .then((status) => {
+      if (status.authenticated) {
+        location.replace(destination())
+      } else if (!status.configured) {
+        setMessage('访问口令尚未配置，请联系管理员打开 Settings。', 'error')
+        passcode.disabled = true
+        button.disabled = true
+      } else if (!status.ready) {
+        setMessage('访问 session 配置不完整，请联系管理员检查 Settings。', 'error')
+        passcode.disabled = true
+        button.disabled = true
+      }
+    })
+    .catch((error) => setMessage(error.message, 'error'))
+})()

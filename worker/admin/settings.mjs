@@ -5,6 +5,14 @@ const SESSION_TTL_SECONDS = 8 * 60 * 60
 
 const FIELDS = [
   {
+    key: 'ACCESS_PASSCODE',
+    label: 'Application access code',
+    description: 'Exactly 6 digits. Visitors must enter it before Travel Ticket or its APIs can be used.',
+    secret: true,
+    required: true,
+    kind: 'passcode',
+  },
+  {
     key: 'MF_API_URL',
     label: 'Manyfold API URL',
     description: 'Manyfold REST API base URL.',
@@ -78,18 +86,8 @@ const FIELDS = [
     description: 'Read-only Notion OAuth configuration ID.',
     secret: true,
   },
-  {
-    key: 'TURNSTILE_SITE_KEY',
-    label: 'Turnstile site key',
-    description: 'Public key rendered by the browser challenge.',
-  },
-  {
-    key: 'TURNSTILE_SECRET_KEY',
-    label: 'Turnstile secret key',
-    description: 'Server-side key used to verify challenge responses.',
-    secret: true,
-  },
 ]
+const FIELD_KEYS = new Set(FIELDS.map((field) => field.key))
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
@@ -187,7 +185,11 @@ async function readStoredSettings(env) {
   const raw = await env.TRIPS_KV.get(SETTINGS_KEY)
   if (!raw) return { settings: empty }
   try {
-    return { settings: await decryptSettings(raw, env.ADMIN_SETTINGS_PASSWORD) }
+    const settings = await decryptSettings(raw, env.ADMIN_SETTINGS_PASSWORD)
+    settings.values = Object.fromEntries(
+      Object.entries(settings.values).filter(([key]) => FIELD_KEYS.has(key)),
+    )
+    return { settings }
   } catch {
     return {
       settings: empty,
@@ -268,6 +270,9 @@ function validateValue(field, value) {
     } catch {
       return `${field.label} must be a valid URL`
     }
+  }
+  if (field.kind === 'passcode' && value && !/^\d{6}$/.test(value)) {
+    return `${field.label} must contain exactly 6 digits`
   }
   return null
 }

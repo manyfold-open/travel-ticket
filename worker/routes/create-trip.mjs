@@ -1,4 +1,4 @@
-// POST /api/trips — Turnstile-gated trip creation. The request initializes a
+// POST /api/trips — rate-limited trip creation. The request initializes a
 // per-trip Durable Object; that object owns the DAG and publishes executable
 // tasks to the queue.
 import { jsonResponse } from '../http.mjs'
@@ -6,19 +6,7 @@ import { tripLinks } from '../trip-links.mjs'
 import { resolveVisitorSession, withVisitorSession } from '../visitor-session.mjs'
 
 const MAX_SENTENCE_LENGTH = 500
-const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const DESIGN_PRESET_NAME_RE = /^[a-z0-9_-]{1,64}$/
-
-async function verifyTurnstile(env, token, remoteip) {
-  if (typeof token !== 'string' || token.length === 0) return false
-  const form = new URLSearchParams()
-  form.set('secret', env.TURNSTILE_SECRET_KEY ?? '')
-  form.set('response', token)
-  if (remoteip) form.set('remoteip', remoteip)
-  const res = await fetch(TURNSTILE_VERIFY_URL, { method: 'POST', body: form })
-  const result = await res.json()
-  return result?.success === true
-}
 
 // Design is optional; custom theme work runs only when a visitor selects it.
 // When present it must match TripJobParams's union shape; the CLI's
@@ -44,12 +32,10 @@ function makeTripId(todayIso) {
 export async function handleCreateTrip(request, env) {
   const remoteip = request.headers.get('cf-connecting-ip') ?? undefined
 
-  // Cloudflare's native Workers Rate Limiting binding (per-IP) — a second,
-  // cheaper gate ahead of Turnstile's own network round-trip: each trip
-  // triggers 5-8 minutes of billed LLM/agent work, so a high-frequency
-  // requester (even one that passes Turnstile) shouldn't be able to hammer
-  // this endpoint. Binding is optional so local/test envs without it degrade
-  // to "not rate limited" rather than crashing.
+  // Cloudflare's native Workers Rate Limiting binding is the public endpoint's
+  // abuse guard. Each trip triggers several minutes of billed agent work.
+  // The binding is optional so local/test envs without it degrade to
+  // "not rate limited" rather than crashing.
   if (env.TRIPS_RATE_LIMITER) {
     const { success } = await env.TRIPS_RATE_LIMITER.limit({ key: remoteip ?? 'unknown' })
     if (!success) {
@@ -64,12 +50,7 @@ export async function handleCreateTrip(request, env) {
     return jsonResponse({ error: 'invalid JSON body' }, 400)
   }
 
-  const { sentence, visitor_id: legacyVisitorId, turnstile_token: turnstileToken, design } = body ?? {}
-
-  const verified = await verifyTurnstile(env, turnstileToken, remoteip)
-  if (!verified) {
-    return jsonResponse({ error: 'Turnstile verification failed — please retry the challenge.' }, 403)
-  }
+  const { sentence, visitor_id: legacyVisitorId, design } = body ?? {}
 
   if (typeof sentence !== 'string' || sentence.trim().length === 0 || sentence.length > MAX_SENTENCE_LENGTH) {
     return jsonResponse({ error: `sentence must be a non-empty string up to ${MAX_SENTENCE_LENGTH} characters` }, 400)

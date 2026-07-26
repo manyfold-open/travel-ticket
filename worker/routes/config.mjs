@@ -13,13 +13,10 @@ export async function handleConfig(env) {
     && env.AGENT_COMPOSER
     && env.AGENT_THEME_DESIGNER,
   )
-  const turnstileReady = Boolean(env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY)
   return jsonResponse({
-    turnstile_site_key: env.TURNSTILE_SITE_KEY ?? null,
-    ready: manyfoldReady && turnstileReady,
+    ready: manyfoldReady,
     services: {
       manyfold: manyfoldReady,
-      turnstile: turnstileReady,
       connectors: Boolean(env.COMPOSIO_API_KEY),
     },
   }, 200)

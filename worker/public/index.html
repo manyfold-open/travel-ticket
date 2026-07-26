@@ -21,10 +21,9 @@
           <p class="hint">把想去的旅程用一句話描述——目的地、大概日期、幾個人、步調偏好——剩下交給 agents：解析需求、查時差、上網做在地功課、排成逐日行程，最後印成車票風格的手冊。</p>
           <label for="sentence" class="sr-only">用一句話描述你的旅程</label>
           <textarea id="sentence" name="sentence" placeholder="例：十月中帶另一半從台北去京都四天，賞楓吃和食，步調放鬆不趕行程，搭大眾運輸"></textarea>
-          <div id="turnstile-container" style="margin-top:16px"></div>
           <p class="notice" id="config-notice" hidden>服務尚未完成設定，出票功能暫時不可用——請稍後再試。</p>
           <div class="controls">
-            <button type="button" class="cta" id="punch">出票 · Punch It</button>
+            <button type="button" class="cta" id="punch" disabled>出票 · Punch It</button>
           </div>
           <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
           <p class="hint" id="error" style="color:var(--gold)" role="alert"></p>
@@ -42,48 +41,29 @@
     </section>
   </div>
 </main>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <script>
 const $ = (id) => document.getElementById(id)
 
-let turnstileToken = null
-let turnstileRequired = false
-
-async function setupTurnstile() {
+async function checkReadiness() {
   let config
   try {
     const res = await fetch('/api/config')
     config = await res.json()
   } catch {
-    config = { ready: false, turnstile_site_key: null }
+    config = { ready: false }
   }
-  if (!config.ready || !config.turnstile_site_key) {
+  if (!config.ready) {
     $('config-notice').hidden = false
-    $('punch').disabled = true
     return
   }
-  turnstileRequired = true
-  const render = () => {
-    if (typeof turnstile === 'undefined') { setTimeout(render, 200); return }
-    turnstile.render('#turnstile-container', {
-      sitekey: config.turnstile_site_key,
-      callback: (token) => { turnstileToken = token },
-      'expired-callback': () => { turnstileToken = null },
-      'error-callback': () => { turnstileToken = null },
-    })
-  }
-  render()
+  $('punch').disabled = false
 }
-setupTurnstile()
+checkReadiness()
 
 $('punch').addEventListener('click', async () => {
   const sentence = $('sentence').value.trim()
   $('error').textContent = ''
   if (!sentence) { $('sentence').focus(); return }
-  if (turnstileRequired && !turnstileToken) {
-    $('error').textContent = '請先完成驗證（Turnstile）。'
-    return
-  }
   $('punch').setAttribute('aria-disabled', 'true')
   $('punch').textContent = '出票中 · Punching...'
   let res
@@ -91,7 +71,7 @@ $('punch').addEventListener('click', async () => {
     res = await fetch('/api/trips', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence, turnstile_token: turnstileToken }),
+      body: JSON.stringify({ sentence }),
     })
   } catch {
     $('error').textContent = '連不到伺服器，請確認網路連線後再試一次。'
@@ -104,8 +84,6 @@ $('punch').addEventListener('click', async () => {
     $('error').textContent = body.error || `伺服器回了 ${res.status}，請再試一次。`
     $('punch').removeAttribute('aria-disabled')
     $('punch').textContent = '出票 · Punch It'
-    if (typeof turnstile !== 'undefined') turnstile.reset('#turnstile-container')
-    turnstileToken = null
     return
   }
   const body = await res.json()

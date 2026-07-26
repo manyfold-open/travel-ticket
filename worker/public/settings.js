@@ -60,8 +60,22 @@
     input.type = field.secret ? 'password' : field.kind === 'url' ? 'url' : 'text'
     input.value = field.value || ''
     input.autocomplete = 'off'
+    input.required = Boolean(field.required && !field.configured)
+    if (field.kind === 'passcode') {
+      input.inputMode = 'numeric'
+      input.pattern = '\\d{6}'
+      input.minLength = 6
+      input.maxLength = 6
+      input.autocomplete = 'new-password'
+      input.placeholder = field.configured ? 'Configured — enter 6 digits to replace' : '6 digits'
+      input.addEventListener('input', () => {
+        input.value = input.value.replace(/\D/g, '').slice(0, 6)
+      })
+    }
     if (field.secret) {
-      input.placeholder = field.configured ? 'Configured — enter a replacement' : 'Not configured'
+      if (field.kind !== 'passcode') {
+        input.placeholder = field.configured ? 'Configured — enter a replacement' : 'Not configured'
+      }
     }
 
     wrapper.append(title, description, input)

@@ -12,13 +12,19 @@ import { handleStartTrip, handleTripStatus } from './routes/status.mjs'
 import {
   handleAdminSettings,
   isAdminSettingsPath,
-  resolveRuntimeEnv,
 } from './admin/settings.mjs'
+import {
+  guardTravelTicketAccess,
+  handleTravelTicketAccess,
+  isTravelTicketAccessApiPath,
+  isTravelTicketAccessPagePath,
+} from './access-control.mjs'
 import { jsonResponse, methodNotAllowed, redirectResponse } from './http.mjs'
 import { getTripFile } from './storage.mjs'
 
 const TRIP_ID_RE = /^[A-Za-z0-9_-]{8,128}$/
 const PAGE_METHODS = ['GET', 'HEAD']
+const SETTINGS_ASSET_PATHS = new Set(['/settings.css', '/settings.js'])
 
 function validTripId(value) {
   return typeof value === 'string' && TRIP_ID_RE.test(value)
@@ -172,6 +178,26 @@ export async function handleFetch(request, env) {
     if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })
     return env.ASSETS.fetch(assetRequest(request, url, '/settings'))
   }
+  if (SETTINGS_ASSET_PATHS.has(pathname)) {
+    if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })
+    return env.ASSETS.fetch(assetRequest(request, url, pathname))
+  }
+
+  if (isTravelTicketAccessApiPath(pathname)) {
+    return handleTravelTicketAccess(request, env)
+  }
+  if (isTravelTicketAccessPagePath(pathname)) {
+    if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })
+    if (pathname === '/access.html' || pathname === '/access/') {
+      return redirectResponse(`/access${url.search}`, 308)
+    }
+    const assetPath = pathname === '/access' ? '/access' : pathname
+    return env.ASSETS.fetch(assetRequest(request, url, assetPath))
+  }
+
+  const access = await guardTravelTicketAccess(request, env)
+  if (access.response) return access.response
+  const runtimeEnv = access.runtimeEnv
 
   if (pathname === '/connect' || pathname === '/connect.html') {
     if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })
@@ -188,7 +214,7 @@ export async function handleFetch(request, env) {
   }
 
   if (segments[0] === 'api') {
-    return routeApi(request, await resolveRuntimeEnv(env), segments.slice(1))
+    return routeApi(request, runtimeEnv, segments.slice(1))
   }
 
   if (segments[0] === 'trips') {
@@ -197,17 +223,17 @@ export async function handleFetch(request, env) {
     if (!validTripId(tripId)) return htmlNotFound('行程編號格式不正確。')
 
     if (segments.length === 3 && (segments[2] === 'connect' || segments[2] === 'progress')) {
-      return routeTripUi(request, env, url, tripId, segments[2])
+      return routeTripUi(request, runtimeEnv, url, tripId, segments[2])
     }
 
     if (segments.length === 2 && !pathname.endsWith('/')) {
       if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })
       return redirectResponse(`${pathname}/${url.search}`, 308)
     }
-    return routeTripSite(request, env, tripId, segments.slice(2))
+    return routeTripSite(request, runtimeEnv, tripId, segments.slice(2))
   }
 
-  return env.ASSETS.fetch(request)
+  return runtimeEnv.ASSETS.fetch(request)
 }
 
 export default { fetch: handleFetch }
