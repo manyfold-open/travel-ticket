@@ -7,7 +7,7 @@ export const BRIEF_SYSTEM = 'You are the Trip Brief Agent in a travel-planning p
 export async function runTripBriefAgent(ctx, sentence, todayIso) {
   const prompt = `Today is ${todayIso}. Trip request: ${sentence}`
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: BRIEF_SYSTEM, prompt, schema: BRIEF_SCHEMA })
+    return runMfJson(ctx.env, ctx.peerId, { system: BRIEF_SYSTEM, prompt, schema: BRIEF_SCHEMA }, { timeoutMs: ctx.timeoutMs })
   }
   const response = await ctx.client.messages.create({
     model: MODEL,
@@ -25,7 +25,7 @@ export const DISCOVERY_SYSTEM = 'You are the Local Discovery Agent in a travel-p
 export async function runLocalDiscoveryAgent(ctx, brief) {
   const prompt = `Trip brief:\n${JSON.stringify(brief, null, 2)}`
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: DISCOVERY_SYSTEM, prompt, schema: DISCOVERY_SCHEMA }, { timeoutMs: 150_000 })
+    return runMfJson(ctx.env, ctx.peerId, { system: DISCOVERY_SYSTEM, prompt, schema: DISCOVERY_SCHEMA }, { timeoutMs: ctx.timeoutMs })
   }
   const stream = ctx.client.messages.stream({
     model: MODEL,
@@ -63,7 +63,7 @@ export async function runComposerAgent(ctx, { sentence, brief, timezone, discove
     `Calendar (fixed events): ${JSON.stringify(calendar)}`,
   ].join('\n\n')
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: COMPOSER_SYSTEM, prompt, schema: COMPOSER_SCHEMA }, { timeoutMs: 150_000 })
+    return runMfJson(ctx.env, ctx.peerId, { system: COMPOSER_SYSTEM, prompt, schema: COMPOSER_SCHEMA }, { timeoutMs: ctx.timeoutMs })
   }
   const stream = ctx.client.messages.stream({
     model: MODEL,

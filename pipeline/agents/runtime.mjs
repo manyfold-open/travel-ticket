@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { runMfJson } from '../mf-client.mjs'
+import { agentCallBudgetMs } from '../agent-budgets.mjs'
 
 export const MODEL = 'claude-opus-4-8'
 
@@ -18,6 +19,17 @@ const ROLE_BINDINGS = {
   theme: 'AGENT_THEME_DESIGNER',
 }
 
+// Each role's A2A deadline comes from the same map that supervises it, so the
+// client aborts (and cancels the remote task) before the supervisor gives up on
+// it. gmail/calendar/notion all run on the `context` peer and share its budget.
+const ROLE_SUPERVISED_AS = {
+  brief: 'Trip Brief Agent',
+  discovery: 'Local Discovery Agent',
+  context: 'Travel Context Agent',
+  composer: 'Itinerary Composer Agent',
+  theme: 'Theme Designer Agent',
+}
+
 // The deployed Worker receives this configuration through bindings rather than
 // process.env. Every executable role has one explicit peer.
 export function createMfContext(env, role) {
@@ -27,13 +39,13 @@ export function createMfContext(env, role) {
   if (!env?.MF_API_URL || !env?.MF_API_TOKEN || !peerId) {
     throw new Error(`Manyfold backend needs MF_API_URL, MF_API_TOKEN and a peer for role "${role}"`)
   }
-  return { backend: 'mf', env, role, peerId }
+  return { backend: 'mf', env, role, peerId, timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role]) }
 }
 
 export async function runStructuredJson(ctx, { system, prompt, schema, maxTokens = 4000 }) {
   if (!ctx) throw new Error('no LLM context')
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema })
+    return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema }, { timeoutMs: ctx.timeoutMs })
   }
   const response = await ctx.client.messages.create({
     model: MODEL,

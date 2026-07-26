@@ -100,7 +100,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
   } else {
     const briefRun = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso), { confidence: 0.9 })
     if (!briefRun.ok) {
-      throw new Error('Trip Brief Agent failed — cannot continue without a brief.')
+      throw new Error(`Trip Brief Agent failed — cannot continue without a brief. ${briefRun.error?.message ?? ''}`.trim())
     }
     brief = briefRun.result
   }

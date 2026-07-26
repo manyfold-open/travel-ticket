@@ -6,6 +6,7 @@
 import { localToUtc } from './timezone.mjs'
 import { validateOverrides } from './contrast.mjs'
 import { CUSTOM_ALLOWED_KEYS } from './customTheme.mjs'
+import { agentBudgetMs } from './agent-budgets.mjs'
 
 // 票夾：每份 trip 的資料夾名 = slug + trip id 短碼（同 slug 不同 run 不互撞）。
 export const tripDirName = (itin) => `${itin.slug || 'trip'}-${String(itin.trip_id || '').split('_').at(-1).slice(0, 4)}`
@@ -38,16 +39,10 @@ export function customMotifsFrom(itinerary) {
 // Agent supervision: every agent runs under a timeout and reports a status
 // entry regardless of outcome. Statuses are per-run (or, in the Worker, per
 // step.do call) so concurrent/repeated runs never share status arrays.
-
-const TIMEOUTS = {
-  'Trip Brief Agent': 120_000,
-  'Local Discovery Agent': 420_000,
-  'Travel Context Agent': 60_000,
-  'Calendar Agent': 60_000,
-  'Notion Agent': 60_000,
-  'Itinerary Composer Agent': 600_000,
-  'Poster Agent': 300_000,
-}
+//
+// This timeout is a backstop, not the operative deadline — see
+// agent-budgets.mjs. Racing an agent call cannot cancel it, so the budget here
+// deliberately sits above the one the A2A client enforces on itself.
 
 export function makeSupervisor(agentStatuses, log) {
   const recordStatus = (agent, status, confidence, notes) => {
@@ -61,7 +56,7 @@ export function makeSupervisor(agentStatuses, log) {
       const result = await Promise.race([
         run(),
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'timeout' })), TIMEOUTS[agent] ?? 120_000)
+          timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'timeout' })), agentBudgetMs(agent))
         }),
       ])
       const seconds = ((Date.now() - startedAt) / 1000).toFixed(1)

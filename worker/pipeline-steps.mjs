@@ -26,7 +26,12 @@ export async function runBriefStep(ctx, sentence, todayIso) {
   const statuses = []
   const { supervise } = makeSupervisor(statuses, noopLog)
   const run = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso), { confidence: 0.9 })
-  if (!run.ok) throw new Error('Trip Brief Agent failed — cannot continue without a brief.')
+  // Carry the underlying cause: this message is what /progress shows the user
+  // and what trip-job.ts stores as the terminal error, so dropping it turns
+  // every distinct failure (timeout, bad JSON, dead peer) into one dead end.
+  if (!run.ok) {
+    throw new Error(`Trip Brief Agent failed — cannot continue without a brief. ${run.error?.message ?? ''}`.trim())
+  }
   return { statuses, brief: run.result }
 }
 

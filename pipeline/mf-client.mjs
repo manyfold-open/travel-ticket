@@ -9,6 +9,9 @@ const DEFAULT_ATTEMPTS = 2
 const DEFAULT_TIMEOUT_MS = 240_000
 const DEFAULT_POLL_INTERVAL_MS = 1_000
 const ERROR_TEXT_LIMIT = 1_000
+// Below this much remaining budget a retry can only re-fail on the clock, so it
+// would burn another agent session (and another billed turn) for nothing.
+const MIN_RETRY_ROOM_MS = 20_000
 
 class A2AError extends Error {
   constructor(message, retryable, refreshCredential = false, retryAfterMs) {
@@ -263,14 +266,13 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
   )
 }
 
-async function executeAttempt(env, peerId, body, timeoutMs, pollIntervalMs, onTaskState) {
-  const deadline = Date.now() + timeoutMs
+async function executeAttempt(env, peerId, body, deadline, pollIntervalMs, onTaskState) {
   const credential = await getPeerToken(env, peerId)
   const response = await fetchTimeout(credential.rpcUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${credential.token}` },
     body,
-  }, timeoutMs)
+  }, Math.max(1_000, deadline - Date.now()))
   let data = await parseRpcResponse(response, peerId)
   const state = taskState(data)
   if (state === 'submitted' || state === 'working') {
@@ -312,17 +314,23 @@ export async function callMfAgent(env, peerId, prompt, options = {}) {
   const attempts = Math.min(3, Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS))
   const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+  // timeoutMs is the budget for the whole call, not per attempt: the caller's
+  // supervisor is sized against this number, so N attempts must not be able to
+  // spend N × timeoutMs behind its back.
+  const deadline = Date.now() + timeoutMs
   let lastError
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await executeAttempt(env, peerId, body, timeoutMs, pollIntervalMs, options.onTaskState)
+      return await executeAttempt(env, peerId, body, deadline, pollIntervalMs, options.onTaskState)
     } catch (error) {
       const failure = normalizeError(error)
       lastError = failure
       if (failure.refreshCredential) forgetPeerToken(env, peerId)
       if (!failure.retryable || attempt >= attempts) throw failure
       const delay = retryDelay(failure, attempt, options.retryDelayMs)
+      // Only retry if a fresh attempt has room to finish inside the budget.
+      if (deadline - Date.now() - delay < MIN_RETRY_ROOM_MS) throw failure
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
     }
   }

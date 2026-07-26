@@ -15,7 +15,7 @@
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
-          <div class="eyebrow">Trip Ticket · Printing In Progress</div>
+          <div class="eyebrow" id="eyebrow">Trip Ticket · Printing In Progress</div>
           <h1 id="heading">出票<br><span>進行中</span></h1>
           <p class="hint" id="hint">Agents 正在工作中——這頁會每 1.5 秒更新一次進度，完成後自動跳到你的手冊。</p>
           <div class="board" id="board">
@@ -109,6 +109,12 @@ async function poll() {
     location.href = s.links?.result || `/trips/${encodeURIComponent(tripId)}/`
   } else if (s.phase === 'error') {
     clearInterval(polling); polling = null
+    // The heading used to stay on "進行中" after a terminal failure, so a dead
+    // run read as one still in progress with a stray error line under it.
+    $('eyebrow').textContent = 'Trip Ticket · Printing Failed'
+    $('heading').innerHTML = '出票<br><span>失敗</span>'
+    $('hint').textContent = '這趟出票沒有完成，下面是每個 agent 的最後狀態。可以回首頁重新出票。'
+    document.title = '出票失敗 · Trip Ticket'
     $('error').textContent = '出票失敗：' + (s.error || '原因不明，請重新從首頁再試一次。')
     if (phaseChanged) announce('出票失敗')
   }

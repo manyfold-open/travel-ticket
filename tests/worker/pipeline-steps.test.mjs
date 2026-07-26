@@ -41,6 +41,19 @@ test('runBriefStep: throws when the Trip Brief Agent fails (no fallback, matches
   )
 })
 
+// The terminal error stored by trip-job.ts is all the user sees on /progress, so
+// it has to name the actual cause rather than only the generic dead end.
+test('runBriefStep: the thrown error carries the underlying cause', async () => {
+  await assert.rejects(
+    () => runBriefStep(brokenCtx, 'a week in Switzerland', '2027-01-01'),
+    (error) => {
+      assert.match(error.message, /Trip Brief Agent failed/)
+      assert.ok(error.message.length > 'Trip Brief Agent failed — cannot continue without a brief.'.length)
+      return true
+    },
+  )
+})
+
 test('runTimezoneStep: resolves timezone from the brief', async () => {
   const { statuses, timezone } = await runTimezoneStep(BRIEF)
   assert.equal(statuses[0].agent, 'Timezone Agent')

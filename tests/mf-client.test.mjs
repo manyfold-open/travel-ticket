@@ -169,3 +169,20 @@ test('runMfJson: throws when reply has no JSON object', () => withFetch(async (u
 }, async () => {
   await assert.rejects(() => runMfJson(ENV, 'agt_no_json', { system: 's', prompt: 'p', schema: {} }), /no JSON object/)
 }))
+
+test('callMfAgent: timeoutMs is the budget for the whole call, not per attempt', () => {
+  let rpcCalls = 0
+  return withFetch(async (url) => {
+    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    rpcCalls++
+    return new Response('overloaded', { status: 503 })
+  }, async () => {
+    // A retryable failure that leaves no room for a second attempt must surface
+    // instead of spending another agent session past the caller's deadline.
+    await assert.rejects(
+      () => callMfAgent(ENV, 'agt_budget', 'hello', { attempts: 3, timeoutMs: 5_000, retryDelayMs: 0 }),
+      /503/,
+    )
+    assert.equal(rpcCalls, 1)
+  })
+})
