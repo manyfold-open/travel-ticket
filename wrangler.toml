@@ -2,6 +2,14 @@ name = "mf-travel-ticket"
 main = "worker/entry.ts"
 compatibility_date = "2026-07-26"
 
+# Without this, a failed trip leaves no trace to diagnose: the queue consumer's
+# console output is discarded and the only surviving evidence is whatever string
+# the DO happened to store. Agent calls run for minutes and fail in ways the
+# error text alone cannot distinguish, so the logs have to be retained.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # The committed application shell is separate from per-trip content. Generated
 # trip pages are written to TRIPS_SITES at runtime.
 [assets]

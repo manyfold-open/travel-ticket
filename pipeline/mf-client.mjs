@@ -207,14 +207,35 @@ async function cancelTask(credential, peerId, id) {
   }
 }
 
+// Agent turns run for minutes, so polling once a second for a whole multi-minute
+// budget buys almost nothing and spends ~1 subrequest per second against the
+// per-invocation cap — a 460s composer budget would burn 460 of them on tasks/get
+// alone. Poll eagerly at first (a short turn is still picked up fast), then
+// settle into a slow beat: ~34 polls across 280s instead of 280.
+const POLL_BACKOFF_CAP_MS = 10_000
+const POLL_EAGER_COUNT = 5
+
+function pollDelayMs(baseMs, polls) {
+  if (polls < POLL_EAGER_COUNT) return baseMs
+  return Math.min(POLL_BACKOFF_CAP_MS, baseMs * 2 ** Math.min(6, polls - POLL_EAGER_COUNT + 1))
+}
+
 async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState) {
   let previousState = ''
   let pollFailures = 0
+  // Diagnostics for the timeout message below. A bare "did not complete within
+  // its wait budget" cannot distinguish a genuinely slow agent from a poll loop
+  // that was failing blind the whole time — and those need opposite fixes.
+  const startedAt = Date.now()
+  let polls = 0
+  let consecutiveFailures = 0
+  let lastFailure = ''
 
   while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
+    await new Promise(resolve => setTimeout(resolve, pollDelayMs(pollIntervalMs, polls)))
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
+    polls += 1
 
     let data
     try {
@@ -230,10 +251,13 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
       }, Math.max(1_000, Math.min(remaining, 15_000)))
       data = await parseRpcResponse(response, peerId)
       pollFailures = 0
+      consecutiveFailures = 0
     } catch (error) {
       const failure = normalizeError(error)
       if (!failure.retryable) throw failure
       pollFailures += 1
+      consecutiveFailures += 1
+      lastFailure = failure.message
       if (failure.refreshCredential) {
         forgetPeerToken(env, peerId)
         try {
@@ -242,7 +266,7 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
           // The Task already exists. Keep polling it instead of resubmitting.
         }
       }
-      onTaskState?.('poll-retrying', id)
+      onTaskState?.('poll-retrying', id, failure.message)
       const delay = Math.min(retryDelay(failure, pollFailures), Math.max(0, deadline - Date.now()))
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
       continue
@@ -260,8 +284,13 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
 
   const canceled = await cancelTask(credential, peerId, id)
   onTaskState?.(canceled ? 'canceled-after-timeout' : 'timed-out', id)
+  const waited = Math.round((Date.now() - startedAt) / 1000)
+  const blind = consecutiveFailures
+    ? ` Last ${consecutiveFailures} poll(s) failed: ${lastFailure}`
+    : ` Last observed state: ${previousState || 'none'}.`
   throw new A2AError(
-    `Agent ${peerId} task ${id} did not complete within its wait budget${canceled ? ' and was canceled' : ''}.`,
+    `Agent ${peerId} task ${id} did not complete within its wait budget`
+    + `${canceled ? ' and was canceled' : ''} (waited ${waited}s over ${polls} poll(s)).${blind}`,
     false,
   )
 }

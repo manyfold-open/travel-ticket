@@ -186,3 +186,49 @@ test('callMfAgent: timeoutMs is the budget for the whole call, not per attempt',
     assert.equal(rpcCalls, 1)
   })
 })
+
+test('callMfAgent: a timeout reports what the poll loop actually saw', () => {
+  let polls = 0
+  return withFetch(async (url, opts) => {
+    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    if (JSON.parse(opts.body).method === 'message/send') {
+      return new Response(JSON.stringify({ result: { id: 'aat_1', status: { state: 'working' } } }), { status: 200 })
+    }
+    polls += 1
+    return new Response('upstream hiccup', { status: 503 })
+  }, async () => {
+    // A poll loop that never once read the task's state must say so: a slow
+    // agent and a blind client produce the same bare timeout otherwise.
+    await assert.rejects(
+      () => callMfAgent(ENV, 'agt_blind', 'hello', { attempts: 1, timeoutMs: 5_000, pollIntervalMs: 0 }),
+      (error) => {
+        assert.match(error.message, /did not complete within its wait budget/)
+        assert.match(error.message, /waited \d+s over \d+ poll\(s\)/)
+        assert.match(error.message, /Last \d+ poll\(s\) failed: .*503/)
+        return true
+      },
+    )
+    assert.ok(polls > 0, 'expected the loop to have attempted polls')
+  })
+})
+
+test('callMfAgent: poll interval backs off instead of spending a subrequest a second', () => {
+  const pollAt = []
+  const startedAt = Date.now()
+  return withFetch(async (url, opts) => {
+    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    if (JSON.parse(opts.body).method === 'message/send') {
+      return new Response(JSON.stringify({ result: { id: 'aat_1', status: { state: 'working' } } }), { status: 200 })
+    }
+    pollAt.push(Date.now() - startedAt)
+    if (pollAt.length < 8) return new Response(JSON.stringify({ result: { status: { state: 'working' } } }), { status: 200 })
+    return new Response(JSON.stringify({ result: { status: { state: 'completed' }, parts: [{ text: 'done' }] } }), { status: 200 })
+  }, async () => {
+    assert.equal(await callMfAgent(ENV, 'agt_backoff', 'hello', { attempts: 1, pollIntervalMs: 20 }), 'done')
+    assert.equal(pollAt.length, 8)
+    // First polls stay eager so a short turn is still picked up quickly; later
+    // gaps grow, which is what keeps a multi-minute wait off the subrequest cap.
+    const gaps = pollAt.slice(1).map((at, i) => at - pollAt[i])
+    assert.ok(gaps.at(-1) > gaps[0] * 3, `expected backoff, got gaps ${gaps.join(',')}`)
+  })
+})

@@ -1,5 +1,5 @@
 import { runMfJson } from '../mf-client.mjs'
-import { MODEL, parseStructured } from './runtime.mjs'
+import { MODEL, mfCallOptions, parseStructured } from './runtime.mjs'
 import { BRIEF_SCHEMA, COMPOSER_SCHEMA, DISCOVERY_SCHEMA } from './schemas.mjs'
 
 export const BRIEF_SYSTEM = 'You are the Trip Brief Agent in a travel-planning pipeline. Turn a one-sentence trip request into a structured brief. Interpret conservatively; record every assumption (dates, pace, traveller count) in notes. Dates must be in the future relative to today.'
@@ -7,7 +7,7 @@ export const BRIEF_SYSTEM = 'You are the Trip Brief Agent in a travel-planning p
 export async function runTripBriefAgent(ctx, sentence, todayIso) {
   const prompt = `Today is ${todayIso}. Trip request: ${sentence}`
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: BRIEF_SYSTEM, prompt, schema: BRIEF_SCHEMA }, { timeoutMs: ctx.timeoutMs })
+    return runMfJson(ctx.env, ctx.peerId, { system: BRIEF_SYSTEM, prompt, schema: BRIEF_SCHEMA }, mfCallOptions(ctx))
   }
   const response = await ctx.client.messages.create({
     model: MODEL,
@@ -25,7 +25,7 @@ export const DISCOVERY_SYSTEM = 'You are the Local Discovery Agent in a travel-p
 export async function runLocalDiscoveryAgent(ctx, brief) {
   const prompt = `Trip brief:\n${JSON.stringify(brief, null, 2)}`
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: DISCOVERY_SYSTEM, prompt, schema: DISCOVERY_SCHEMA }, { timeoutMs: ctx.timeoutMs })
+    return runMfJson(ctx.env, ctx.peerId, { system: DISCOVERY_SYSTEM, prompt, schema: DISCOVERY_SCHEMA }, mfCallOptions(ctx))
   }
   const stream = ctx.client.messages.stream({
     model: MODEL,
@@ -63,7 +63,7 @@ export async function runComposerAgent(ctx, { sentence, brief, timezone, discove
     `Calendar (fixed events): ${JSON.stringify(calendar)}`,
   ].join('\n\n')
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system: COMPOSER_SYSTEM, prompt, schema: COMPOSER_SCHEMA }, { timeoutMs: ctx.timeoutMs })
+    return runMfJson(ctx.env, ctx.peerId, { system: COMPOSER_SYSTEM, prompt, schema: COMPOSER_SCHEMA }, mfCallOptions(ctx))
   }
   const stream = ctx.client.messages.stream({
     model: MODEL,

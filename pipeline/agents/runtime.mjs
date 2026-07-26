@@ -39,13 +39,28 @@ export function createMfContext(env, role) {
   if (!env?.MF_API_URL || !env?.MF_API_TOKEN || !peerId) {
     throw new Error(`Manyfold backend needs MF_API_URL, MF_API_TOKEN and a peer for role "${role}"`)
   }
-  return { backend: 'mf', env, role, peerId, timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role]) }
+  return {
+    backend: 'mf',
+    env,
+    role,
+    peerId,
+    timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role]),
+    onTaskState: (state, taskId, detail) => {
+      console.log(`[a2a] ${role} ${taskId} ${state}${detail ? ` · ${detail}` : ''}`)
+    },
+  }
+}
+
+// Every mf-backed call needs the role's deadline and its logger; forgetting
+// either is how a stalled agent turn becomes an unexplained failure.
+export function mfCallOptions(ctx) {
+  return { timeoutMs: ctx.timeoutMs, onTaskState: ctx.onTaskState }
 }
 
 export async function runStructuredJson(ctx, { system, prompt, schema, maxTokens = 4000 }) {
   if (!ctx) throw new Error('no LLM context')
   if (ctx.backend === 'mf') {
-    return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema }, { timeoutMs: ctx.timeoutMs })
+    return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema }, mfCallOptions(ctx))
   }
   const response = await ctx.client.messages.create({
     model: MODEL,
