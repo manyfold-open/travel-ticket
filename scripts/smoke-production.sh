@@ -5,17 +5,35 @@ set -uo pipefail
 
 BASE="${1:-https://mf-travel-ticket.netmind-ai.workers.dev}"
 ACCESS_PASSCODE="${TRAVEL_TICKET_ACCESS_PASSCODE:-}"
+PROPAGATION_ATTEMPTS="${TRAVEL_TICKET_SMOKE_ATTEMPTS:-15}"
+PROPAGATION_DELAY="${TRAVEL_TICKET_SMOKE_DELAY_SECONDS:-3}"
 fails=0
 pass(){ echo "  ✓ $1"; }
 fail(){ echo "  ✗ $1"; fails=$((fails+1)); }
 
+wait_for_gate(){
+  local attempt=1
+  local gate=""
+  while [ "$attempt" -le "$PROPAGATION_ATTEMPTS" ]; do
+    gate=$(curl --silent --show-error --max-time 30 --output /dev/null \
+      --write-out '%{http_code} %{redirect_url}' \
+      "$BASE/?smoke_deploy=$attempt-$(date +%s)" 2>/dev/null || true)
+    if echo "$gate" | grep -qE '^302 .*/access\?next='; then
+      pass "access: visitor gate enabled"
+      return 0
+    fi
+    if [ "$attempt" -lt "$PROPAGATION_ATTEMPTS" ]; then
+      sleep "$PROPAGATION_DELAY"
+    fi
+    attempt=$((attempt+1))
+  done
+  fail "access: expected redirect after deployment propagation ($gate)"
+  return 1
+}
+
 echo "smoke: $BASE"
 
-gate=$(curl --silent --show-error --max-time 30 --output /dev/null \
-  --write-out '%{http_code} %{redirect_url}' "$BASE/")
-echo "$gate" | grep -qE '^302 .*/access\?next=' \
-  && pass "access: visitor gate enabled" \
-  || fail "access: expected redirect ($gate)"
+wait_for_gate || true
 
 access_status=$(curl --silent --show-error --max-time 30 "$BASE/api/access/status")
 echo "$access_status" | grep -q '"configured":' \
