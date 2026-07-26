@@ -2,23 +2,29 @@ export interface Env {
   ASSETS: Fetcher
   TRIPS_KV: KVNamespace
   TRIPS_SITES: KVNamespace
-  TRIP_WORKFLOW: Workflow
+  TRIP_JOBS: DurableObjectNamespace<import('./trip-job').TripJob>
+  TRIP_TASK_QUEUE: Queue<import('./trip-job').TripQueueMessage>
+  ADMIN_SETTINGS_PASSWORD?: string
 
-  // Manyfold Agent API (Option B) — see pipeline/agents.mjs's createMfContext.
+  // Manyfold A2A role peers.
   MF_API_URL: string
   MF_AGENT_ID: string
-  AGENT_PIPELINE: string
-  MF_API_TOKEN: string // secret, set via `wrangler secret put`
+  AGENT_BRIEF?: string
+  AGENT_DISCOVERY?: string
+  AGENT_CONTEXT_EXTRACTOR?: string
+  AGENT_COMPOSER?: string
+  AGENT_THEME_DESIGNER?: string
+  // Supplied through /settings or retained as a Worker secret fallback.
+  MF_API_TOKEN?: string
 
-  // Composio connectors — absent until Zack provisions them (see HANDOVER-CLOUD.md).
+  // Optional Composio connector configuration; see docs/operations.md.
   COMPOSIO_API_KEY?: string
   COMPOSIO_GMAIL_AUTH_CONFIG_ID?: string
   COMPOSIO_CALENDAR_AUTH_CONFIG_ID?: string
   COMPOSIO_NOTION_AUTH_CONFIG_ID?: string
 
-  // Turnstile — absent until Zack provisions it. SITE_KEY is public/client-side
-  // (served via GET /api/config to worker/public/index.html); SECRET_KEY is
-  // server-side-only, checked by worker/routes/create-trip.mjs.
+  // Turnstile. SITE_KEY is public/client-side (served via GET /api/config);
+  // SECRET_KEY is server-side-only and checked by worker/routes/create-trip.mjs.
   TURNSTILE_SITE_KEY?: string
   TURNSTILE_SECRET_KEY?: string
 
@@ -28,7 +34,7 @@ export interface Env {
   TRIPS_RATE_LIMITER?: RateLimit
 }
 
-export interface TripWorkflowParams {
+export interface TripJobParams {
   tripId: string
   sentence: string
   todayIso: string

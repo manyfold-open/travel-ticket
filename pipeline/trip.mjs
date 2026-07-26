@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { runTimezoneAgent, localToUtc } from './agents.mjs'
+import { runTimezoneAgent } from './agents.mjs'
 import {
   createLocalContext as createContext,
   runTripBriefAgent,
@@ -28,7 +28,7 @@ import { THEMES, resolveTheme, recommendThemes, CUSTOM_OPTION } from './themes.m
 import { generateCustomTheme } from './customTheme-local.mjs'
 import { renderItinerary } from './render-local.mjs'
 import {
-  tripDirName, customTokensFrom, customMotifsFrom, makeSupervisor, localCompose, slugify, assembleItinerary, parseDesignChoice,
+  tripDirName, customTokensFrom, customMotifsFrom, makeSupervisor, localCompose, assembleItinerary, parseDesignChoice,
 } from './trip-core.mjs'
 
 export { tripDirName, customTokensFrom, customMotifsFrom, parseDesignChoice }
@@ -154,7 +154,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
     plan: {
       tripId, sentence, mock, brief, timezone, discovery, composed,
       contextResult: contextRun.result, calendarResult: calendarRun.result, notionResult: notionRun.result,
-      agentStatuses, posterResult: null,
+      agentStatuses,
     },
     designOptions,
   }

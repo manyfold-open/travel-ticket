@@ -1,7 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { handleCreateTrip } from '../../worker/routes/create-trip.mjs'
-import { readStatus } from '../../worker/storage.mjs'
 
 class MockKV {
   constructor() { this.store = new Map() }
@@ -13,9 +12,17 @@ class MockKV {
   }
 }
 
-class MockWorkflow {
-  constructor() { this.created = [] }
-  async create(opts) { this.created.push(opts); return { id: opts.id } }
+class MockTripJobs {
+  constructor() { this.initialized = [] }
+  idFromName(id) { return id }
+  get(id) {
+    return {
+      initialize: async (params) => {
+        this.initialized.push({ id, params })
+        return { phase: 'draft', trip_id: id }
+      },
+    }
+  }
 }
 
 class MockRateLimiter {
@@ -23,7 +30,12 @@ class MockRateLimiter {
   async limit(opts) { this.calls.push(opts); return { success: this.success } }
 }
 
-const makeEnv = () => ({ TRIPS_KV: new MockKV(), TRIPS_SITES: new MockKV(), TRIP_WORKFLOW: new MockWorkflow(), TURNSTILE_SECRET_KEY: 'sk_test' })
+const makeEnv = () => ({
+  TRIPS_KV: new MockKV(),
+  TRIPS_SITES: new MockKV(),
+  TRIP_JOBS: new MockTripJobs(),
+  TURNSTILE_SECRET_KEY: 'sk_test',
+})
 
 const VALID_BODY = { sentence: 'a relaxed week in Switzerland', visitor_id: 'visitor_abcdef01', turnstile_token: 'tok_ok' }
 
@@ -45,7 +57,7 @@ test('handleCreateTrip: missing/invalid Turnstile token -> 403', async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req({ ...VALID_BODY, turnstile_token: 'bad' }), env)
     assert.equal(res.status, 403)
-    assert.equal(env.TRIP_WORKFLOW.created.length, 0)
+    assert.equal(env.TRIP_JOBS.initialized.length, 0)
   })
 })
 
@@ -60,16 +72,20 @@ test('handleCreateTrip: no turnstile_token at all -> 403 (never calls siteverify
   } finally { globalThis.fetch = realFetch }
 })
 
-test('handleCreateTrip: valid token + valid body -> 201, workflow triggered, queued status written', async () => {
+test('handleCreateTrip: valid token + valid body -> 201, durable job initialized', async () => {
   await withMockFetch({ success: true }, async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req(VALID_BODY), env)
     assert.equal(res.status, 201)
     const body = await res.json()
     assert.match(body.trip_id, /^trip_/)
+    assert.equal(body.phase, 'draft')
+    assert.equal(body.links.connect, `/trips/${body.trip_id}/connect`)
+    assert.equal(res.headers.get('location'), body.links.connect)
+    assert.match(res.headers.get('set-cookie'), /^travel_ticket_visitor=/)
 
-    assert.equal(env.TRIP_WORKFLOW.created.length, 1)
-    const { id, params } = env.TRIP_WORKFLOW.created[0]
+    assert.equal(env.TRIP_JOBS.initialized.length, 1)
+    const { id, params } = env.TRIP_JOBS.initialized[0]
     assert.equal(id, body.trip_id)
     assert.equal(params.tripId, body.trip_id)
     assert.equal(params.sentence, VALID_BODY.sentence)
@@ -77,21 +93,26 @@ test('handleCreateTrip: valid token + valid body -> 201, workflow triggered, que
     assert.equal(typeof params.todayIso, 'string')
     assert.equal(params.design, undefined)
 
-    const status = await readStatus(env, body.trip_id)
-    assert.equal(status.phase, 'queued')
-    assert.deepEqual(status.agents, {})
-    assert.deepEqual(status.log, [])
-    assert.equal(status.manifest, null)
-    assert.equal(status.error, null)
   })
 })
 
-test('handleCreateTrip: an explicit design choice is passed through to the workflow', async () => {
+test('handleCreateTrip: creates a cookie-backed visitor when legacy visitor_id is omitted', async () => {
+  await withMockFetch({ success: true }, async () => {
+    const env = makeEnv()
+    const { visitor_id, ...bodyWithoutVisitor } = VALID_BODY
+    const res = await handleCreateTrip(req(bodyWithoutVisitor), env)
+    assert.equal(res.status, 201)
+    assert.match(env.TRIP_JOBS.initialized[0].params.visitorId, /^visitor_[a-f0-9]{32}$/)
+    assert.match(res.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/)
+  })
+})
+
+test('handleCreateTrip: an explicit design choice is passed through to the durable job', async () => {
   await withMockFetch({ success: true }, async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req({ ...VALID_BODY, design: { kind: 'preset', name: 'japan' } }), env)
     assert.equal(res.status, 201)
-    assert.deepEqual(env.TRIP_WORKFLOW.created[0].params.design, { kind: 'preset', name: 'japan' })
+    assert.deepEqual(env.TRIP_JOBS.initialized[0].params.design, { kind: 'preset', name: 'japan' })
   })
 })
 
@@ -100,7 +121,7 @@ test('handleCreateTrip: malformed design choice -> 400', async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req({ ...VALID_BODY, design: { kind: 'nonsense' } }), env)
     assert.equal(res.status, 400)
-    assert.equal(env.TRIP_WORKFLOW.created.length, 0)
+    assert.equal(env.TRIP_JOBS.initialized.length, 0)
   })
 })
 
@@ -109,7 +130,7 @@ test('handleCreateTrip: oversized sentence -> 400', async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req({ ...VALID_BODY, sentence: 'x'.repeat(501) }), env)
     assert.equal(res.status, 400)
-    assert.equal(env.TRIP_WORKFLOW.created.length, 0)
+    assert.equal(env.TRIP_JOBS.initialized.length, 0)
   })
 })
 
@@ -126,7 +147,7 @@ test('handleCreateTrip: malformed visitor_id (too short) -> 400', async () => {
     const env = makeEnv()
     const res = await handleCreateTrip(req({ ...VALID_BODY, visitor_id: 'short' }), env)
     assert.equal(res.status, 400)
-    assert.equal(env.TRIP_WORKFLOW.created.length, 0)
+    assert.equal(env.TRIP_JOBS.initialized.length, 0)
   })
 })
 
@@ -147,7 +168,7 @@ test('handleCreateTrip: malformed JSON body -> 400', async () => {
   })
 })
 
-test('handleCreateTrip: rate limiter blocks -> 429, never reaches Turnstile or the workflow', async () => {
+test('handleCreateTrip: rate limiter blocks -> 429, never reaches Turnstile or the durable job', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = async () => { throw new Error('siteverify should not be called when rate-limited') }
   try {
@@ -155,7 +176,7 @@ test('handleCreateTrip: rate limiter blocks -> 429, never reaches Turnstile or t
     env.TRIPS_RATE_LIMITER = new MockRateLimiter(false)
     const res = await handleCreateTrip(req(VALID_BODY), env)
     assert.equal(res.status, 429)
-    assert.equal(env.TRIP_WORKFLOW.created.length, 0)
+    assert.equal(env.TRIP_JOBS.initialized.length, 0)
     assert.deepEqual(env.TRIPS_RATE_LIMITER.calls, [{ key: '203.0.113.9' }])
   } finally { globalThis.fetch = realFetch }
 })

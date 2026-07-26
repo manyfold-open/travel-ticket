@@ -1,7 +1,5 @@
-/* Hallmark · design-system: DESIGN.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket)
-   Shared across index/connect/progress.html — same ticket/stub/cta vocabulary
-   as pipeline/studio.html (the closest existing analog), adapted rather than
-   invented, per Task 10's plan instructions. */
+/* Design system: docs/design-system.md. Shared train-ticket shell for the
+   home, connector, and progress pages. */
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
 :root {
   color-scheme: light;

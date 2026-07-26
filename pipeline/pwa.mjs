@@ -7,7 +7,7 @@
 //     (studio latest) or `/trips/<dir>/` (studio wallet), and when the dir is
 //     zipped and opened locally. Nothing assumes an absolute origin.
 //   - No dependencies. Icons are rasterised to PNG with the built-in zlib —
-//     no canvas/sharp. Colours mirror DESIGN.md tokens (no new hex):
+//     no canvas/sharp. Colours mirror docs/design-system.md tokens (no new hex):
 //     --night #292a25, --paper #fff8ea, --rail #e3372d, --ink #171713,
 //     --rail-deep #9c322b.
 //   - Service worker is NETWORK-FIRST for documents (a re-render is always
@@ -60,7 +60,7 @@ function shortHash(str) {
   return (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).slice(0, 12)
 }
 
-// --- tokens (mirror DESIGN.md; not new colours) ---------------------------
+// --- tokens (mirror docs/design-system.md; not new colours) ---------------------------
 const NIGHT = [0x29, 0x2a, 0x25]
 const PAPER = [0xff, 0xf8, 0xea]
 const RAIL = [0xe3, 0x37, 0x2d]

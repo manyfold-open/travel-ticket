@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>
-/* Hallmark · design-system: DESIGN.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
+/* Hallmark · design-system: docs/design-system.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
 :root {
   color-scheme: light;
@@ -188,12 +188,6 @@ textarea:focus { outline: 3px solid var(--gold); }
 .done-cta { display: none; margin-top: 20px; }
 .done-cta.show { display: inline-flex; }
 .done-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-/* 部署是次要動作：深底上的空票框（大膽額度留給紅 CTA 與條碼），alpha 邊線是 token 透明度變體。 */
-.cta-ghost { background: transparent; border: 1px solid rgba(255,248,234,.35); color: var(--paper-dim); }
-.cta-ghost:hover:not([aria-disabled="true"]), .cta-ghost:active:not([aria-disabled="true"]) { background: transparent; border-color: var(--gold); color: var(--paper-bright); }
-/* 部署中用 aria-disabled 不用 disabled：disable 聚焦中的按鈕會把鍵盤焦點丟回 body
-   （server 端 409 已防重複觸發，前端不靠 disabled 也安全）。 */
-.cta-ghost:disabled, .cta-ghost[aria-disabled="true"] { background: transparent; border-color: rgba(255,248,234,.2); color: var(--paper-ghost); cursor: wait; }
 @media (max-width: 900px) {
   .ticket-grid { grid-template-columns: 1fr; }
   .stub { border-left: 0; border-top: 1px dashed var(--line-strong); }
@@ -227,7 +221,6 @@ textarea:focus { outline: 3px solid var(--gold); }
             <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
             <div class="done-row">
               <a class="cta done-cta" id="viewtrip" href="/trip/">手冊完成 · 打開來看</a>
-              <button type="button" class="cta cta-ghost done-cta" id="deploy">部署 · Wrangler Deploy</button>
             </div>
           </div>
         </div>
@@ -260,7 +253,7 @@ function announce(text) {
 }
 
 // client 端錯誤行要進 clientErrors：poll 每 1.5s 用 server log 整段重建 logbox，
-// 只 append 不入列的話（pipeline/deploy 還在吐 log 時）錯誤一閃就被洗掉。
+// 只 append 不入列的話，錯誤一閃就被洗掉。
 const clientErrors = []
 function logError(message) {
   $('board').classList.add('show')
@@ -318,26 +311,20 @@ async function poll() {
     pollFailures = 0
   } catch {
     pollFailures += 1
-    if (pollFailures === 3) logError('[warn] 連不上 studio server，繼續重試中——確認 npm run studio 還活著。')
+    if (pollFailures === 3) logError('[warn] 連不上 local studio，繼續重試中——確認 npm run studio:local 還活著。')
     return
   }
   renderWallet(s.trip, s.trips)
-  // 播報只對應「剛發生的轉換」：done/error 分支不准每輪 poll 重播（會蓋掉 deploy 三態的播報）。
+  // 播報只對應「剛發生的轉換」：done/error 分支不准每輪 poll 重播。
   const phaseChanged = s.phase !== lastPipelinePhase
   lastPipelinePhase = s.phase
-  const deployActive = s.deploy && s.deploy.phase !== 'idle'
-  // board 先開再播報：#announce 在 #board 裡，祖先還是 display:none 時
-  // live region 不在 a11y tree，renderDeploy 的「部署中」會被 SR 丟棄。
-  if (s.phase !== 'idle' || deployActive) $('board').classList.add('show')
-  // deploy 是獨立狀態機：server 重啟後 pipeline phase 會回 idle，但殘留分頁仍可能觸發部署——
-  // 部署狀態與 log 不准被 idle 早退吃掉（錯誤要誠實印進 logbox）。
-  renderDeploy(s.deploy)
-  if (s.phase === 'idle' && !deployActive) return
+  if (s.phase !== 'idle') $('board').classList.add('show')
+  if (s.phase === 'idle') return
   renderAgents(s.agents, s.phase === 'running')
-  // logbox＝pipeline log＋deploy log＋client 端錯誤（合流，poll 重建才不會洗掉 409 之類的錯誤行）。
+  // logbox＝pipeline log＋client 端錯誤（合流，poll 重建才不會洗掉錯誤行）。
   // diff-guard：內容沒變不碰 DOM；有變也只有人本來就在底部才跟捲，
-  // 否則部署跑幾十秒期間根本沒辦法回捲讀較早的 wrangler 錯誤行。
-  const logText = [...s.log.slice(-12), ...((s.deploy && s.deploy.log) || []).slice(-10), ...clientErrors].join('\n')
+  // 否則 pipeline 執行期間沒辦法回捲讀較早的錯誤行。
+  const logText = [...s.log.slice(-12), ...clientErrors].join('\n')
   if (logText !== lastLogText) {
     lastLogText = logText
     const log = $('log')
@@ -353,45 +340,13 @@ async function poll() {
   } else {
     $('punch').disabled = false
     $('punch').textContent = '出票 · Punch It'
-    // deploy 還在跑就不能停 poll（logbox 要繼續吐 wrangler 進度）。
-    if (!(s.deploy && s.deploy.phase === 'running')) { clearInterval(polling); polling = null }
+    clearInterval(polling)
+    polling = null
     if (s.phase === 'done') {
       $('viewtrip').classList.add('show')
-      $('deploy').classList.add('show')
-      // 只在首次轉入 done 播報；deploy 進行中也讓位（部署狀態才是使用者剛觸發的事）。
-      if (phaseChanged && !deployActive) announce('手冊完成，可以打開來看')
+      if (phaseChanged) announce('手冊完成，可以打開來看')
     }
     if (s.phase === 'error' && phaseChanged) logError('[error] 出票失敗：' + (s.error || '原因不明，看 server log') + '——修正後再按一次「出票」。')
-  }
-}
-
-// 部署鈕狀態機（diff-guard 同 renderAgents）：文案永遠寫「會發生／發生了什麼」。
-// dedupe key 只看真正的狀態轉換（phase/url/error）——wrangler 每吐一行 log 都重跑三態
-// 等於整段部署期間 aria-live spam。
-let lastDeployKey = ''
-function renderDeploy(d) {
-  if (!d) return
-  const key = JSON.stringify([d.phase, d.url, d.error])
-  if (key === lastDeployKey) return
-  lastDeployKey = key
-  const btn = $('deploy')
-  // running 用 aria-disabled 不用 disabled：disable 聚焦中的按鈕會把鍵盤焦點丟回 body
-  //（Tab 得從頭走回來）；重複觸發由 server 端 409 擋。
-  if (d.phase === 'running') {
-    btn.setAttribute('aria-disabled', 'true')
-    btn.textContent = '部署中 · Wrangler 執行中'
-    announce('部署中，進度印在 log')
-  } else {
-    btn.removeAttribute('aria-disabled')
-    if (d.phase === 'done') {
-      btn.textContent = '已部署 · 再部署一次'
-      announce('部署完成' + (d.url ? '：' + d.url : ''))
-    } else if (d.phase === 'error') {
-      btn.textContent = '部署失敗 · 再試一次'
-      announce('部署失敗：' + (d.error || '看 log'))
-    } else {
-      btn.textContent = '部署 · Wrangler Deploy'
-    }
   }
 }
 
@@ -418,7 +373,6 @@ $('punch').addEventListener('click', async () => {
   const mock = $('mock').checked
   if (!sentence && !mock) { $('sentence').focus(); return }
   $('viewtrip').classList.remove('show')
-  $('deploy').classList.remove('show')
   let res
   try {
     res = await fetch('/api/plan', {
@@ -427,7 +381,7 @@ $('punch').addEventListener('click', async () => {
       body: JSON.stringify({ sentence, mock }),
     })
   } catch {
-    logError('[error] 連不到 studio server——確認 npm run studio 還在跑，再按一次「出票」。')
+    logError('[error] 連不到 local studio——確認 npm run studio:local 還在跑，再按一次「出票」。')
     return
   }
   if (!res.ok) {
@@ -436,24 +390,6 @@ $('punch').addEventListener('click', async () => {
     return
   }
   $('board').classList.add('show')
-  startPolling()
-})
-
-// 部署：按了才跑（manifest 的 deployment_status 停在 awaiting_approval，這顆就是 approval）。
-$('deploy').addEventListener('click', async () => {
-  if ($('deploy').getAttribute('aria-disabled') === 'true') return
-  let res
-  try {
-    res = await fetch('/api/deploy', { method: 'POST' })
-  } catch {
-    logError('[error] 連不到 studio server——確認 npm run studio 還在跑，再按一次「部署」。')
-    return
-  }
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}))
-    logError('[error] 部署沒有開始：' + (e.error || `server 回了 ${res.status}`))
-    return
-  }
   startPolling()
 })
 

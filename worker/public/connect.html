@@ -75,10 +75,9 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id)
-const VISITOR_ID_KEY = 'trip_ticket_visitor_id'
 const params = new URLSearchParams(location.search)
-const tripId = params.get('trip')
-const visitorId = localStorage.getItem(VISITOR_ID_KEY)
+const pathMatch = location.pathname.match(/^\/trips\/([^/]+)\/connect\/?$/)
+const tripId = pathMatch ? decodeURIComponent(pathMatch[1]) : params.get('trip')
 
 if (!tripId) {
   $('error').textContent = '找不到 trip id，請重新從首頁出票。'
@@ -99,25 +98,30 @@ function setCardState(provider, status, message) {
 }
 
 async function checkStatus(provider) {
-  if (!tripId || !visitorId) return
+  if (!tripId) return
   try {
-    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connect/${provider}/status?visitor_id=${encodeURIComponent(visitorId)}`)
+    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}`)
     const body = await res.json()
-    setCardState(provider, body.connected ? 'connected' : 'pending')
+    if (!res.ok) throw new Error(body.error || String(res.status))
+    setCardState(provider, body.connected ? 'connected' : body.status)
   } catch { /* leave as-is; user can retry via the button */ }
 }
 
 const pollers = {}
 async function startLink(provider) {
-  if (!tripId || !visitorId) return
+  if (!tripId) return
   let res
   try {
-    res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connect/${provider}/link?visitor_id=${encodeURIComponent(visitorId)}`, { method: 'POST' })
+    res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}/link`, { method: 'POST' })
   } catch {
     $('error').textContent = '連不到伺服器，請稍後再試。'
     return
   }
   const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    $('error').textContent = body.error || `連結失敗（${res.status}）`
+    return
+  }
   if (body.status === 'configuration_required') {
     setCardState(provider, 'configuration_required', body.message)
     return
@@ -128,7 +132,7 @@ async function startLink(provider) {
     window.open(body.authorization_url, '_blank', 'noopener')
     if (pollers[provider]) clearInterval(pollers[provider])
     pollers[provider] = setInterval(async () => {
-      const r = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connect/${provider}/status?visitor_id=${encodeURIComponent(visitorId)}`)
+      const r = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}`)
       const s = await r.json().catch(() => ({}))
       if (s.connected) {
         setCardState(provider, 'connected')
@@ -145,11 +149,24 @@ document.querySelectorAll('.card-btn').forEach((btn) => {
 
 ;['gmail', 'calendar', 'notion'].forEach(checkStatus)
 
-function goToProgress() {
-  location.href = `/progress.html?trip=${encodeURIComponent(tripId)}`
+async function startTrip() {
+  if (!tripId) return
+  $('start').disabled = true
+  $('skip').disabled = true
+  $('error').textContent = ''
+  try {
+    const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/start`, { method: 'POST' })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`)
+    location.href = body.links?.progress || `/trips/${encodeURIComponent(tripId)}/progress`
+  } catch (error) {
+    $('error').textContent = `無法開始出票：${error.message}`
+    $('start').disabled = false
+    $('skip').disabled = false
+  }
 }
-$('start').addEventListener('click', goToProgress)
-$('skip').addEventListener('click', goToProgress)
+$('start').addEventListener('click', startTrip)
+$('skip').addEventListener('click', startTrip)
 </script>
 </body>
 </html>

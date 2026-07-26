@@ -1,13 +1,10 @@
-// Plain, directly-Node-testable step functions for the Cloudflare Workflow
-// (worker/pipeline-workflow.ts). Each function is self-contained — its own
-// local agentStatuses array + supervise call — so its return value is a
-// plain, structured-clone-safe object usable as a step.do() result.
+// Plain, directly Node-testable task functions used by the Queue consumer.
+// Each function is self-contained — its own local agentStatuses array plus
+// supervise call — so its output can be persisted by the TripJob object.
 //
-// Mirrors pipeline/trip.mjs's planTrip/renderTicket step-by-step (same
-// fallback semantics: brief hard-fails, timezone/discovery/composer/theme
-// all have honest fallbacks), minus mock mode, poster generation, and the
-// CLI's dual dist-root render — spec §3 has neither; this Worker only ever
-// serves a trip via /trips/<slug>/* out of KV.
+// Mirrors pipeline/trip.mjs's fallback semantics: brief hard-fails while
+// timezone, discovery, composer, and theme have explicit fallbacks. The
+// Worker omits local mock/poster behavior and serves generated trips from KV.
 //
 // Zero node: imports (transitively, via agents.mjs/trip-core.mjs/render.mjs/
 // customTheme.mjs/themes.mjs/storage.mjs, all already Worker-safe) — guarded
@@ -21,7 +18,7 @@ import { makeSupervisor, localCompose, customMotifsFrom } from '../pipeline/trip
 import { generateCustomTheme } from '../pipeline/customTheme.mjs'
 import { resolveTheme } from '../pipeline/themes.mjs'
 import { buildItineraryFiles } from '../pipeline/render.mjs'
-import { saveTripFiles, saveTripJson, writeStatus } from './storage.mjs'
+import { saveTripFiles, saveTripJson } from './storage.mjs'
 
 const noopLog = () => {}
 
@@ -119,24 +116,4 @@ export async function runRenderStep(env, itinerary, { customTokens, customMotifs
   await saveTripFiles(env, itinerary.trip_id, files)
   await saveTripJson(env, itinerary.trip_id, itinerary)
   return { pageCount: pages.length }
-}
-
-export async function runManifestStep(env, tripId, status) {
-  await writeStatus(env, tripId, status)
-  return status
-}
-
-// Reduces the Workflow's running agentStatuses log into the {agents, log}
-// shape worker/routes/status.mjs polls — mirrors server.mjs/studio.html's
-// existing {phase, agents, log, manifest, error} status contract (agents:
-// name -> latest status string; log: human-readable "name: notes" lines) so
-// the progress page's polling logic ports with minimal changes, per the plan.
-export function summarizeAgentStatuses(agentStatuses) {
-  const agents = {}
-  const log = []
-  for (const s of agentStatuses) {
-    agents[s.agent] = s.status
-    log.push(`${s.agent}: ${s.notes}`)
-  }
-  return { agents, log }
 }

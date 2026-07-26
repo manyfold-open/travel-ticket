@@ -104,7 +104,7 @@ test('calendar execution pins the active connected account', async () => {
   assert.equal(body.connectedAccountId, 'ca_calendar')
 })
 
-test('CLI compatibility adapter requires an explicit user id and forwards it to direct execution', async () => {
+test('local CLI adapter requires an explicit user id and forwards it to direct execution', async () => {
   let body
   const client = { tools: { execute: async (_tool, input) => { body = input; return { successful: true, data: { ok: true } } } } }
   const session = await mcpSession({ userId: 'tt_visitor_1234', client })

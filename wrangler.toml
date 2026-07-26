@@ -1,0 +1,81 @@
+name = "mf-travel-ticket"
+main = "worker/entry.ts"
+compatibility_date = "2026-07-26"
+
+# The committed application shell is separate from per-trip content. Generated
+# trip pages are written to TRIPS_SITES at runtime.
+[assets]
+directory = "worker/public"
+binding = "ASSETS"
+# Dynamic APIs, canonical redirects and generated trip files must reach the
+# application router before Wrangler's automatic HTML asset handling.
+run_worker_first = true
+
+# Lets worker/trip-task.ts `import cityThemePrompt from
+# '../pipeline/prompts/city-theme.txt'` at build time (no fs read at runtime —
+# customTheme.mjs takes promptTemplate as a plain string parameter).
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# Wrangler provisions account-local KV resources on the first deployment.
+# TRIPS_KV holds encrypted runtime settings.
+# TRIPS_SITES holds generated files served from /trips/<slug>/*.
+[[kv_namespaces]]
+binding = "TRIPS_KV"
+
+[[kv_namespaces]]
+binding = "TRIPS_SITES"
+
+# Per-IP rate limit on POST /api/trips (worker/routes/create-trip.mjs) — a
+# second, cheaper gate ahead of Turnstile: each trip triggers 5-8 minutes of
+# billed LLM/agent work, so even a Turnstile-passing high-frequency requester
+# shouldn't be able to hammer this endpoint. Native Workers binding (GA), no
+# custom domain/zone required (this Worker only has a workers.dev hostname,
+# so the dashboard-level WAF "Rate limiting rules" feature doesn't apply here).
+[[ratelimits]]
+name = "TRIPS_RATE_LIMITER"
+namespace_id = "1001"
+[ratelimits.simple]
+limit = 5
+period = 60
+
+# One strongly-consistent coordinator per trip. Queue consumers execute the
+# external A2A/connector calls; the DO only persists and advances the DAG.
+[[durable_objects.bindings]]
+name = "TRIP_JOBS"
+class_name = "TripJob"
+
+[[migrations]]
+tag = "initial-sqlite"
+new_sqlite_classes = ["TripJob"]
+
+[[queues.producers]]
+binding = "TRIP_TASK_QUEUE"
+queue = "mf-travel-ticket-tasks"
+
+[[queues.consumers]]
+queue = "mf-travel-ticket-tasks"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 30
+max_concurrency = 5
+
+# Manyfold Agent API (Option B): the pipeline's LLM calls run against the
+# user's own Manyfold agent over A2A (pipeline/mf-client.mjs), not a raw
+# ANTHROPIC_API_KEY — billed to the Manyfold account, not Anthropic directly.
+[vars]
+MF_API_URL = "https://api.manyfold.ai/api"
+MF_AGENT_ID = "agt_agpzmesx6f5prlyvhg77g4arbu"
+AGENT_BRIEF = "agt_agpzmetm5ryebfwufjl2h2rb4e"
+AGENT_DISCOVERY = "agt_agpzmeuncr33jpcjvlbtf4owmq"
+AGENT_CONTEXT_EXTRACTOR = "agt_agpzmevmgr6ktg2ybz57n5icgm"
+AGENT_COMPOSER = "agt_agpzmewhejz73kqbpembtejhqi"
+AGENT_THEME_DESIGNER = "agt_agpzmexfyb4vrkyev46m5e54fy"
+
+# The production workflow bootstraps /settings from its
+# ADMIN_SETTINGS_PASSWORD GitHub environment secret.
+# Runtime values above are initial/fallback defaults. After login, /settings
+# stores encrypted overrides in TRIPS_KV. Existing Worker secrets remain valid
+# as bootstrap/fallback values and can be replaced from the settings page.

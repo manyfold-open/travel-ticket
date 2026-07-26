@@ -1,126 +1,384 @@
-// Manyfold A2A client — calls a Manyfold platform agent as the pipeline's LLM
-// backend. Fetch-based only (no Node builtins) so it runs unchanged in a
-// Cloudflare Worker or in local Node. Mirrors article-lens's src/crew/mf.ts:
-//   1. mint a short-lived per-peer bearer:
-//        POST {MF_API_URL}/agent-self/a2a/peers/{peerId}/token   (Bearer = MF_API_TOKEN)
-//        → { token, rpcUrl, expiresAt }
-//   2. call the peer's rpcUrl with that bearer using JSON-RPC message/send.
-// Minted tokens are cached per peer (~15 min) so repeated calls in one run
-// reuse a token instead of minting every time.
+// Manyfold A2A client shared by the local pipeline and Cloudflare Queue tasks.
+// A message/send response may be a completed Message or an accepted Task. Task
+// responses are polled with tasks/get so slow peers are never parsed before
+// their final output exists.
 
 const tokenCache = new Map()
+const tokenInflight = new Map()
+const DEFAULT_ATTEMPTS = 2
+const DEFAULT_TIMEOUT_MS = 240_000
+const DEFAULT_POLL_INTERVAL_MS = 1_000
+const ERROR_TEXT_LIMIT = 1_000
+
+class A2AError extends Error {
+  constructor(message, retryable, refreshCredential = false, retryAfterMs) {
+    super(message)
+    this.name = 'A2AError'
+    this.retryable = retryable
+    this.refreshCredential = refreshCredential
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+function cacheKey(env, peerId) {
+  return `${env.MF_API_URL}:${env.MF_AGENT_ID || 'self'}:${peerId}`
+}
+
+function forgetPeerToken(env, peerId) {
+  tokenCache.delete(cacheKey(env, peerId))
+}
+
+function safeErrorText(value) {
+  return String(value ?? '')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/g, '[redacted-token]')
+    .replace(/\s+/g, ' ')
+    .slice(0, ERROR_TEXT_LIMIT)
+}
+
+function retryAfterMs(response) {
+  const raw = response.headers.get('retry-after')
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1_000, 15_000)
+  const date = Date.parse(raw)
+  return Number.isNaN(date) ? undefined : Math.min(Math.max(0, date - Date.now()), 15_000)
+}
+
+function retryableStatus(status) {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
+}
+
+function looksTransient(message) {
+  return /\b(timeout|timed out|temporar|unavailable|overload|rate limit|too many|network|fetch failed|connection|socket|internal error|server error|502|503|504|turn_timeout)\b/i.test(message)
+    || /\b(runtime|sandbox)\b.*\b(dead|offline|stopped|not alive|not running)\b/i.test(message)
+}
+
+function normalizeError(error) {
+  if (error instanceof A2AError) return error
+  const message = safeErrorText(error instanceof Error ? error.message : error)
+  const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : ''
+  const timedOut = name === 'AbortError' || /abort|timeout|timed out/i.test(message)
+  return new A2AError(
+    timedOut ? `Manyfold A2A request timed out. ${message}` : message || 'Unknown Manyfold A2A failure.',
+    timedOut || looksTransient(message) || error instanceof TypeError,
+  )
+}
+
+async function fetchTimeout(url, options, timeoutMs) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 async function getPeerToken(env, peerId) {
-  const cached = tokenCache.get(peerId)
+  const key = cacheKey(env, peerId)
+  const cached = tokenCache.get(key)
   if (cached && cached.exp > Date.now() + 30_000) return cached
 
-  const q = env.MF_AGENT_ID ? `?agentId=${encodeURIComponent(env.MF_AGENT_ID)}` : ''
-  const res = await fetch(`${env.MF_API_URL}/agent-self/a2a/peers/${encodeURIComponent(peerId)}/token${q}`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${env.MF_API_TOKEN}`, accept: 'application/json' },
-  })
-  if (!res.ok) throw new Error(`peer token mint failed: ${res.status} ${await res.text()}`)
-  const j = await res.json()
-  const exp = j.expiresAt ? new Date(j.expiresAt).getTime() : Date.now() + 10 * 60_000
-  const entry = { token: j.token, rpcUrl: j.rpcUrl, exp }
-  tokenCache.set(peerId, entry)
-  return entry
-}
+  const pending = tokenInflight.get(key)
+  if (pending) return pending
 
-async function fetchTimeout(url, opts, ms) {
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), ms)
+  const mint = (async () => {
+    const query = env.MF_AGENT_ID ? `?agentId=${encodeURIComponent(env.MF_AGENT_ID)}` : ''
+    const response = await fetchTimeout(
+      `${env.MF_API_URL}/agent-self/a2a/peers/${encodeURIComponent(peerId)}/token${query}`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.MF_API_TOKEN}`, accept: 'application/json' },
+      },
+      15_000,
+    )
+    if (!response.ok) {
+      const detail = safeErrorText(await response.text())
+      throw new A2AError(
+        `Peer credential mint failed: HTTP ${response.status}${detail ? ` · ${detail}` : ''}`,
+        retryableStatus(response.status),
+        false,
+        retryAfterMs(response),
+      )
+    }
+
+    let body
+    try {
+      body = await response.json()
+    } catch (error) {
+      throw new A2AError(`Peer credential response was not valid JSON. ${safeErrorText(error)}`, true)
+    }
+    if (!body?.token || !body?.rpcUrl) {
+      throw new A2AError('Peer credential response omitted token or rpcUrl.', true)
+    }
+    const parsedExpiry = body.expiresAt ? new Date(body.expiresAt).getTime() : Number.NaN
+    const entry = {
+      token: body.token,
+      rpcUrl: body.rpcUrl,
+      exp: Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + 10 * 60_000,
+    }
+    tokenCache.set(key, entry)
+    return entry
+  })()
+
+  tokenInflight.set(key, mint)
   try {
-    return await fetch(url, { ...opts, signal: ctrl.signal })
+    return await mint
   } finally {
-    clearTimeout(t)
+    if (tokenInflight.get(key) === mint) tokenInflight.delete(key)
   }
 }
 
-// Pull the text out of an A2A task/message result (handles fenced JSON too).
-export function extractAgentText(data) {
-  const result = data?.result
-  if (!result) return JSON.stringify(data)
-  const parts = result.parts
-  if (parts?.[0]?.text) return parts[0].text
-  const artifacts = result.artifacts
-  if (artifacts?.length) {
-    const texts = artifacts
-      .flatMap((a) => a.parts ?? [])
-      .map((p) => p.text)
-      .filter(Boolean)
-    if (texts.length) return texts.join('\n')
-  }
-  const msg = result.status?.message
-  if (msg?.parts?.[0]?.text) return msg.parts[0].text
-  return JSON.stringify(result)
+function taskState(data) {
+  return String(data?.result?.status?.state ?? '').trim().toLowerCase().replace(/_/g, '-')
 }
 
-// Send one prompt to a Manyfold agent and return its text output. Retries
-// once on transient failure (timeout / 5xx); 4xx fails fast (bad request/auth).
-export async function callMfAgent(env, peerId, prompt, opts = {}) {
+function taskId(data) {
+  const value = data?.result?.id ?? data?.result?.taskId
+  return typeof value === 'string' && value ? value : null
+}
+
+function rpcFailure(data, peerId) {
+  if (!data?.error) return null
+  const code = typeof data.error.code === 'number' ? data.error.code : undefined
+  const message = safeErrorText(data.error.message ?? data.error.data ?? JSON.stringify(data.error))
+  const permanent = code === -32700 || code === -32600 || code === -32601 || code === -32602
+  return new A2AError(
+    `Agent ${peerId} RPC error${code === undefined ? '' : ` ${code}`}: ${message}`,
+    !permanent && looksTransient(message),
+  )
+}
+
+async function parseRpcResponse(response, peerId) {
+  if (!response.ok) {
+    const detail = safeErrorText(await response.text())
+    throw new A2AError(
+      `Agent ${peerId} failed: HTTP ${response.status}${detail ? ` · ${detail}` : ''}`,
+      retryableStatus(response.status) || response.status === 401,
+      response.status === 401,
+      retryAfterMs(response),
+    )
+  }
+  let data
+  try {
+    data = await response.json()
+  } catch (error) {
+    throw new A2AError(`Agent ${peerId} returned invalid JSON. ${safeErrorText(error)}`, true)
+  }
+  const failure = rpcFailure(data, peerId)
+  if (failure) throw failure
+  return data
+}
+
+function terminalTaskError(data, peerId) {
+  const state = taskState(data)
+  if (state === 'failed' || state === 'canceled' || state === 'rejected') {
+    const detail = safeErrorText(extractAgentText(data))
+    return new A2AError(
+      `Agent ${peerId} task ${state}: ${detail}`,
+      state === 'failed' && looksTransient(detail),
+    )
+  }
+  if (state === 'input-required' || state === 'auth-required') {
+    return new A2AError(`Agent ${peerId} task stopped in state "${state}".`, false)
+  }
+  return null
+}
+
+async function cancelTask(credential, peerId, id) {
+  try {
+    const response = await fetchTimeout(credential.rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${credential.token}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tasks/cancel',
+        id: crypto.randomUUID(),
+        params: { id },
+      }),
+    }, 10_000)
+    return taskState(await parseRpcResponse(response, peerId)) === 'canceled'
+  } catch {
+    return false
+  }
+}
+
+async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState) {
+  let previousState = ''
+  let pollFailures = 0
+
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
+
+    let data
+    try {
+      const response = await fetchTimeout(credential.rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${credential.token}` },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'tasks/get',
+          id: crypto.randomUUID(),
+          params: { id },
+        }),
+      }, Math.max(1_000, Math.min(remaining, 15_000)))
+      data = await parseRpcResponse(response, peerId)
+      pollFailures = 0
+    } catch (error) {
+      const failure = normalizeError(error)
+      if (!failure.retryable) throw failure
+      pollFailures += 1
+      if (failure.refreshCredential) {
+        forgetPeerToken(env, peerId)
+        try {
+          credential = await getPeerToken(env, peerId)
+        } catch {
+          // The Task already exists. Keep polling it instead of resubmitting.
+        }
+      }
+      onTaskState?.('poll-retrying', id)
+      const delay = Math.min(retryDelay(failure, pollFailures), Math.max(0, deadline - Date.now()))
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+      continue
+    }
+
+    const state = taskState(data)
+    if (state && state !== previousState) {
+      previousState = state
+      onTaskState?.(state, id)
+    }
+    const terminal = terminalTaskError(data, peerId)
+    if (terminal) throw terminal
+    if (!state || state === 'completed') return data
+  }
+
+  const canceled = await cancelTask(credential, peerId, id)
+  onTaskState?.(canceled ? 'canceled-after-timeout' : 'timed-out', id)
+  throw new A2AError(
+    `Agent ${peerId} task ${id} did not complete within its wait budget${canceled ? ' and was canceled' : ''}.`,
+    false,
+  )
+}
+
+async function executeAttempt(env, peerId, body, timeoutMs, pollIntervalMs, onTaskState) {
+  const deadline = Date.now() + timeoutMs
+  const credential = await getPeerToken(env, peerId)
+  const response = await fetchTimeout(credential.rpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${credential.token}` },
+    body,
+  }, timeoutMs)
+  let data = await parseRpcResponse(response, peerId)
+  const state = taskState(data)
+  if (state === 'submitted' || state === 'working') {
+    const id = taskId(data)
+    if (!id) throw new A2AError(`Agent ${peerId} returned state "${state}" without a task id.`, true)
+    onTaskState?.(state, id)
+    data = await pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState)
+  }
+
+  const terminal = terminalTaskError(data, peerId)
+  if (terminal) throw terminal
+  const output = extractAgentText(data).trim()
+  if (!output) throw new A2AError(`Agent ${peerId} completed without text output.`, true)
+  return output
+}
+
+function retryDelay(error, attempt, override) {
+  if (override !== undefined) return Math.max(0, override)
+  if (error.retryAfterMs !== undefined) return error.retryAfterMs
+  return Math.min(4_000, 450 * (2 ** Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250)
+}
+
+export async function callMfAgent(env, peerId, prompt, options = {}) {
   const body = JSON.stringify({
     jsonrpc: '2.0',
     method: 'message/send',
     id: crypto.randomUUID(),
     params: {
       message: {
-        kind: 'message', role: 'user', messageId: crypto.randomUUID(),
+        kind: 'message',
+        role: 'user',
+        messageId: crypto.randomUUID(),
         parts: [{ kind: 'text', text: prompt }],
       },
+      configuration: { blocking: false },
     },
   })
 
-  let lastErr
-  const attempts = Math.max(1, opts.attempts ?? 2)
-  const timeoutMs = opts.timeoutMs ?? 90_000
-  for (let attempt = 0; attempt < attempts; attempt++) {
+  const attempts = Math.min(3, Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS))
+  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+  let lastError
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      if (attempt > 0) tokenCache.delete(peerId)
-      const { token, rpcUrl } = await getPeerToken(env, peerId)
-      const res = await fetchTimeout(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${token}` },
-        body,
-      }, timeoutMs)
-      if (!res.ok) {
-        const detail = `${res.status} ${await res.text()}`
-        if (res.status >= 500 && attempt < attempts - 1) { lastErr = new Error(detail); continue }
-        throw new Error(`agent ${peerId} failed: ${detail}`)
-      }
-      const data = await res.json()
-      if (data.error) throw new Error(`agent ${peerId} rpc error: ${data.error.message ?? JSON.stringify(data.error)}`)
-      const state = data.result?.status?.state
-      if (state === 'failed') {
-        const detail = extractAgentText(data)
-        if (attempt < attempts - 1) { lastErr = new Error(detail); continue }
-        throw new Error(`agent ${peerId} task failed: ${detail}`)
-      }
-      return extractAgentText(data)
-    } catch (e) {
-      lastErr = e
-      if (attempt < attempts - 1) continue
-      throw e
+      return await executeAttempt(env, peerId, body, timeoutMs, pollIntervalMs, options.onTaskState)
+    } catch (error) {
+      const failure = normalizeError(error)
+      lastError = failure
+      if (failure.refreshCredential) forgetPeerToken(env, peerId)
+      if (!failure.retryable || attempt >= attempts) throw failure
+      const delay = retryDelay(failure, attempt, options.retryDelayMs)
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+  throw lastError ?? new A2AError('Manyfold A2A call failed without an error.', false)
 }
 
-// Structured-output call over A2A: since message/send is plain text in/out
-// (no json_schema response format like the Anthropic API), the schema is
-// appended to the prompt as an instruction and the reply is parsed the same
-// tolerant way the `claude` CLI backend does (strip fences, slice outermost braces).
-export async function runMfJson(env, peerId, { system, prompt, schema }, opts = {}) {
+export function extractAgentText(data) {
+  const result = data?.result
+  if (!result) return JSON.stringify(data)
+  const direct = textParts(result.parts)
+  if (direct) return direct
+  const artifacts = result.artifacts
+  if (artifacts?.length) {
+    const texts = artifacts
+      .flatMap(artifact => artifact.parts ?? [])
+      .flatMap(part => typeof part.text === 'string' && part.text ? [part.text] : [])
+    if (texts.length) return texts.join('\n')
+  }
+  const status = textParts(result.status?.message?.parts)
+  return status || JSON.stringify(result)
+}
+
+function textParts(parts) {
+  return (parts ?? [])
+    .flatMap(part => typeof part.text === 'string' && part.text ? [part.text] : [])
+    .join('\n')
+}
+
+function extractJson(text) {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const source = fenced ? fenced[1] : text
+  const match = source.match(/\{[\s\S]*\}/)
+  return (match?.[0] ?? '').trim()
+}
+
+function repairInnerQuotes(value) {
+  return value.replace(/(?<=[\p{L}\p{N}）)】」』])"(?=[\p{L}\p{N}（(【「『])/gu, '\\"')
+}
+
+export async function runMfJson(env, peerId, { system, prompt, schema }, options = {}) {
   const fullPrompt = [
     system,
     prompt,
     'Respond with ONLY a single JSON object that validates against this JSON Schema — no code fences, no commentary:',
     JSON.stringify(schema),
   ].join('\n\n')
-  const text = await callMfAgent(env, peerId, fullPrompt, opts)
-  const stripped = text.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '')
-  const start = stripped.indexOf('{')
-  const end = stripped.lastIndexOf('}')
-  if (start === -1 || end <= start) throw new Error('no JSON object in agent response')
-  return JSON.parse(stripped.slice(start, end + 1))
+  const output = await callMfAgent(env, peerId, fullPrompt, options)
+  const json = extractJson(output)
+  if (!json) throw new Error('no JSON object in agent response')
+  try {
+    return JSON.parse(json)
+  } catch (strictError) {
+    try {
+      return JSON.parse(repairInnerQuotes(json))
+    } catch {
+      throw new Error(`invalid JSON in agent response: ${safeErrorText(strictError)}`)
+    }
+  }
 }

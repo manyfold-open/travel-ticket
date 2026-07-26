@@ -14,7 +14,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
 }[char]))
 
 const css = `
-/* Hallmark · design-system: DESIGN.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
+/* Hallmark · design-system: docs/design-system.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
 :root {
   color-scheme: light;
@@ -430,7 +430,7 @@ h1 span { color: var(--gold); }
   gap: 8px 12px;
   margin-bottom: 10px;
 }
-/* Hand 角色：每張票至多一句（DESIGN.md 劑量規則），站務員鉛筆批註。
+/* Hand 角色：每張票至多一句（docs/design-system.md 劑量規則），站務員鉛筆批註。
    flex-basis 讓批註在窄票根自動換行到章下方，避免直排。 */
 .annot {
   flex: 1 1 180px;

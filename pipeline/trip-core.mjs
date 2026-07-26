@@ -39,7 +39,7 @@ export function customMotifsFrom(itinerary) {
 // entry regardless of outcome. Statuses are per-run (or, in the Worker, per
 // step.do call) so concurrent/repeated runs never share status arrays.
 
-export const TIMEOUTS = {
+const TIMEOUTS = {
   'Trip Brief Agent': 120_000,
   'Local Discovery Agent': 420_000,
   'Travel Context Agent': 60_000,
@@ -91,7 +91,7 @@ export function makeSupervisor(agentStatuses, log) {
 // CLI's --mock mode). Deterministic and unspectacular, but always yields a
 // renderable plan.
 
-export const minuteToHHMM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+const minuteToHHMM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
 export function localCompose(brief, discovery) {
   const days = []

@@ -4,8 +4,6 @@ import {
   saveTripFiles,
   saveTripJson,
   getTripFile,
-  writeStatus,
-  readStatus,
 } from '../../worker/storage.mjs'
 
 // Minimal in-memory stand-in for a Cloudflare KVNamespace — just enough of
@@ -27,7 +25,7 @@ class MockKV {
   }
 }
 
-const makeEnv = () => ({ TRIPS_SITES: new MockKV(), TRIPS_KV: new MockKV() })
+const makeEnv = () => ({ TRIPS_SITES: new MockKV() })
 
 test('saveTripFiles + getTripFile: round-trips content under trips/<id>/<path>', async () => {
   const env = makeEnv()
@@ -72,16 +70,4 @@ test('saveTripJson + getTripFile: itinerary.json round-trips as JSON content', a
   const res = await getTripFile(env, 'abc123', 'itinerary.json')
   assert.match(res.headers.get('content-type'), /application\/json/)
   assert.deepEqual(await res.json(), { destination: 'Kyoto', days: [1, 2, 3] })
-})
-
-test('writeStatus + readStatus: round-trips the status object', async () => {
-  const env = makeEnv()
-  const status = { phase: 'discovery', agents: { 'Trip Brief Agent': 'ok' }, log: ['started'], manifest: null, error: null }
-  await writeStatus(env, 'trip-9', status)
-  assert.deepEqual(await readStatus(env, 'trip-9'), status)
-})
-
-test('readStatus: unknown trip id returns null', async () => {
-  const env = makeEnv()
-  assert.equal(await readStatus(env, 'nope'), null)
 })

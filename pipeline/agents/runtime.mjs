@@ -1,0 +1,53 @@
+import Anthropic from '@anthropic-ai/sdk'
+import { runMfJson } from '../mf-client.mjs'
+
+export const MODEL = 'claude-opus-4-8'
+
+export async function createContext(preferred) {
+  const hasApiCredentials = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)
+  const backend = preferred ?? (hasApiCredentials ? 'sdk' : null)
+  if (backend === 'sdk') return { backend, client: new Anthropic() }
+  throw new Error('No LLM backend available: set ANTHROPIC_API_KEY (or `ant auth login`). For the `claude` CLI backend, use createLocalContext from agents-local.mjs.')
+}
+
+const ROLE_BINDINGS = {
+  brief: 'AGENT_BRIEF',
+  discovery: 'AGENT_DISCOVERY',
+  context: 'AGENT_CONTEXT_EXTRACTOR',
+  composer: 'AGENT_COMPOSER',
+  theme: 'AGENT_THEME_DESIGNER',
+}
+
+// The deployed Worker receives this configuration through bindings rather than
+// process.env. Every executable role has one explicit peer.
+export function createMfContext(env, role) {
+  const binding = ROLE_BINDINGS[role]
+  if (!binding) throw new Error(`Unsupported Manyfold role: "${role ?? ''}"`)
+  const peerId = env?.[binding]
+  if (!env?.MF_API_URL || !env?.MF_API_TOKEN || !peerId) {
+    throw new Error(`Manyfold backend needs MF_API_URL, MF_API_TOKEN and a peer for role "${role}"`)
+  }
+  return { backend: 'mf', env, role, peerId }
+}
+
+export async function runStructuredJson(ctx, { system, prompt, schema, maxTokens = 4000 }) {
+  if (!ctx) throw new Error('no LLM context')
+  if (ctx.backend === 'mf') {
+    return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema })
+  }
+  const response = await ctx.client.messages.create({
+    model: MODEL,
+    max_tokens: maxTokens,
+    output_config: { format: { type: 'json_schema', schema } },
+    system,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return parseStructured(response)
+}
+
+export function parseStructured(response) {
+  if (response.stop_reason === 'refusal') throw new Error('model refused the request')
+  const text = response.content.find(block => block.type === 'text')?.text
+  if (!text) throw new Error(`no text block in response (stop_reason=${response.stop_reason})`)
+  return JSON.parse(text)
+}

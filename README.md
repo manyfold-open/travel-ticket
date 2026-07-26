@@ -1,18 +1,18 @@
 # Trip Ticket Pipeline — 一句話變旅遊手冊
 
-線上版（瑞士 demo）：https://switzerland-itinerary-2026.zack-chen.workers.dev
+線上版：https://mf-travel-ticket.netmind-ai.workers.dev
 
 ## 這是什麼
 一個 multi-agent pipeline：輸入一句話的旅遊需求，經過多個 agent 協作，
-產出票券風格的互動行程網站（可部署到 Cloudflare Workers）。
+產出票券風格的互動行程網站，並由 GitHub Actions 部署到 Cloudflare Workers。
 
 ```
 一句話 ─▶ Trip Brief Agent (LLM, structured output)
               ├─ Timezone Agent        (純程式，Intl 計算時差/DST)
               ├─ Local Discovery Agent (LLM + web search，官方來源)
-              ├─ Travel Context Agent  (Gmail via Composio MCP，無 key 自動 skip)
-              ├─ Calendar Agent        (Google Calendar via Composio MCP，無 key 自動 skip)
-              └─ Notion Agent          (Notion via Composio MCP，無 key 自動 skip)
+              ├─ Travel Context Agent  (Gmail via Composio，無 key 自動 skip)
+              ├─ Calendar Agent        (Google Calendar via Composio，無 key 自動 skip)
+              └─ Notion Agent          (Notion via Composio，無 key 自動 skip)
           Itinerary Composer Agent (LLM) ─▶ final_itinerary.json ─▶ dist/ 網站
 ```
 
@@ -22,15 +22,25 @@
 
 ## 怎麼跑
 
-### 入口網頁（推薦）
+### Cloudflare 應用（推薦）
 
 ```bash
-npm run studio   # → http://localhost:4747
+npm run dev   # → http://localhost:8788
 ```
 
-開瀏覽器貼上一句話 → 按「出票」→ 即時看每個 agent 的進度 →
-完成後自動出現「打開手冊」，封面在 `/trip/`、每日分頁在 `/trip/day-*.html`。
-入口右下角隨時列出最新一份手冊的 Cover / Day 快速連結。
+開瀏覽器貼上一句話 → 建立 draft → 選擇連結 Gmail / Calendar / Notion 或跳過 →
+明確啟動 Workflow → 即時看每個 agent 的進度 → 完成後打開
+`/trips/<id>/`。`/settings`、Durable Object、Queue 和 KV 都在同一個 Worker origin。
+
+### 本地 Studio（開發工具）
+
+```bash
+npm run studio:local   # → http://localhost:4747
+```
+
+Studio 只執行本地 filesystem pipeline，輸出到 `data/` 和 `dist/`；它不是公開應用，
+也不管理 Worker 配置。從 Studio 訪問 `/settings` 會跳轉到
+`http://localhost:8788/settings`，因此需要另外啟動 `npm run dev`。
 
 ### 指令列
 
@@ -56,7 +66,7 @@ node pipeline/orchestrator.mjs --render-only --trip=kyoto
 
 ### 票夾（多份手冊共存）
 
-- 每次產出：最新一份印在 `dist/` 根（部署相容），同時收進
+- 每次產出：最新一份印在 `dist/` 根（本地預覽），同時收進
   `dist/trips/<slug-id>/`＋`data/trips/<slug-id>.json`。
 - Studio 首頁右下 **Ticket Wallet** 列出歷史手冊（`/trips/<slug-id>/`）。
 - 日票有 Relaxed/Full 深連結（`?mode=full`）、撕票翻頁（View Transitions＋
@@ -79,14 +89,17 @@ LLM backend 自動選擇（也可用 `--backend=sdk|cli` 強制指定）：
 
 | 路徑 | 說明 |
 |---|---|
-| `DESIGN.md` | 設計語言（tokens、字體角色、元件語彙、無障礙底線）——改前端先讀這份 |
+| `docs/README.md` | 文件入口：目前有效的 product、design、Cloudflare 文件與歷史記錄索引 |
+| `docs/design-system.md` | 設計語言（tokens、字體角色、元件語彙、無障礙底線）——改前端先讀這份 |
 | `pipeline/server.mjs` + `pipeline/studio.html` | 入口網頁（Studio）：貼一句話出票、看 agent 進度、瀏覽產出手冊 |
 | `pipeline/orchestrator.mjs` | 派工、timeout 監督、fallback、組裝 JSON、觸發渲染 |
-| `pipeline/agents.mjs` | 各 agent 實作（Claude API `claude-opus-4-8`、structured outputs、web search）＋時區工具 |
+| `pipeline/agents.mjs` | 穩定的 Agent 公開入口；只負責 re-export，既有 import 不需跟著內部拆分改動 |
+| `pipeline/agents/` | Agent runtime、JSON schemas、行程 agents、Composio connectors、poster prompt，按責任拆分 |
+| `pipeline/mf-client.mjs` | Manyfold A2A client：mint peer token，呼叫 `message/send`，并以 `tasks/get` 等待非同步結果 |
 | `pipeline/render.mjs` | 通用渲染器：任意 `final_itinerary` JSON → 票券風格網站（單一真實來源） |
+| `worker/` | Cloudflare Worker 路由、自建 Durable Object + Queue workflow engine、KV storage 與 HTTP helper |
 | `scripts/generate-itinerary-preview.mjs` | 瑞士 demo 的行程資料，渲染走 `pipeline/render.mjs` |
-| `scripts/serve-dist.mjs` | 本地預覽 dist 的小型靜態 server |
-| `src/itinerary-worker.ts` + `wrangler.itinerary.toml` | Cloudflare Workers 部署（assets = dist/） |
+| `worker/entry.ts` + `wrangler.toml` | Cloudflare Worker 部署入口（靜態 app shell + Durable Object + Queue + KV） |
 
 ## final_itinerary JSON 重點欄位
 - `days[].items[]`：`start_utc`/`end_utc`（UTC-first）＋ `timezone`、`variant`（both/relaxed/full）、`sources`
@@ -105,7 +118,7 @@ server owner 的帳號。
   專案呼叫 Composio API；它不是任何訪客的 Google/Notion credential，也不能提交進 repo。
 - 在 dashboard 建立三個 **read-only** auth config 後，將其 ID 設為
   `COMPOSIO_GMAIL_AUTH_CONFIG_ID`、`COMPOSIO_CALENDAR_AUTH_CONFIG_ID`、
-  `COMPOSIO_NOTION_AUTH_CONFIG_ID`。MCP 的 Connect Link 工具只走
+  `COMPOSIO_NOTION_AUTH_CONFIG_ID`。Connector adapter 建立連結時只走
   `connectedAccounts.link()`；不使用已於 2026-07-03 對 managed OAuth 停用的
   `initiate()`。
 - 沒有 connector account 時，讀取工具回傳 `not_connected` 和「先建立 Connect Link」
@@ -157,7 +170,7 @@ Studio，可用其 authenticated session/cookie 作為這個穩定 ID 的來源�
   "mcpServers": {
     "trip-ticket": {
       "command": "node",
-      "args": ["/Users/zack/Desktop/travel ticket/switzerland-itinerary-package/pipeline/mcp-server.mjs"],
+      "args": ["/absolute/path/to/travel-ticket/pipeline/mcp-server.mjs"],
       "env": {
         "COMPOSIO_API_KEY": "ck_project_key",
         "COMPOSIO_GMAIL_AUTH_CONFIG_ID": "ac_readonly_gmail",
@@ -168,8 +181,8 @@ Studio，可用其 authenticated session/cookie 作為這個穩定 ID 的來源�
   }
 }
 ```
-（Composio env 全部選用；這些值只屬於 host server，絕不能放進 repo。`/Users/zack/...`
-是本機範例路徑，請換成你自己這份 repo 實際的絕對路徑。）
+（Composio env 全部選用；這些值只屬於 host server，絕不能放進 repo。請把
+`/absolute/path/to/travel-ticket` 換成這份 repo 的實際絕對路徑。）
 
 **注意事項**
 - `render_ticket` 不產生 poster；MCP 模式保留圖片生成的誠實 skip，不會呼叫本機
@@ -180,10 +193,32 @@ Studio，可用其 authenticated session/cookie 作為這個穩定 ID 的來源�
   schema/behavior 變動時，應重新驗證本 adapter 的 read-only tool slugs 與參數。
 
 ## 部署
-```bash
-npx wrangler deploy --config wrangler.itinerary.toml
+
+完整的 bindings、secrets、驗證和部署流程見
+[系統架構](./docs/architecture.md)、[Agent 編排](./docs/agent-orchestration.md)
+與[運行及部署](./docs/operations.md)。
+
+公開 Worker 的運行配置集中在密碼保護的 `/settings`。本機開發可建立不提交的
+`.dev.vars`：
+
+```dotenv
+ADMIN_SETTINGS_PASSWORD=choose-a-long-random-password
 ```
 
-## 還沒接的東西
-- **自動部署**：orchestrator 產出後停在 `deployment_status: awaiting_approval`，
-  部署仍是手動指令。
+執行 `npm run dev` 後進入 `http://localhost:8788/settings`，可配置 Manyfold role
+agents、Manyfold token、Composio 和 Turnstile。密鑰會加密保存在 KV，頁面不會回顯。
+
+生產部署只由 [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)
+執行：push 到 `main`，或在 GitHub Actions 手動觸發 workflow。Repository 的
+`production` environment 需要配置 `CLOUDFLARE_API_TOKEN`、
+`CLOUDFLARE_ACCOUNT_ID` 和 `ADMIN_SETTINGS_PASSWORD`。本地只執行
+`npm run check` 和 `npm run check:worker`，沒有生產發布命令。
+
+公開版的長任務不使用 Cloudflare Workflows。每個 trip 由 `TripJob` Durable
+Object 保存 DAG、租約、重試與進度，Queue consumer 執行 Manyfold A2A 和
+Composio 任務；詳細恢復語義與 role peer 設定見上面的 Cloudflare 文件。
+
+## 部署邊界
+
+本機 orchestrator 和 Studio 不會發布程式碼或新站點。公開 Worker 內產生的每份
+行程直接寫入 KV，完成後由 `/trips/<id>/` 提供，不需要為每份行程再次部署。

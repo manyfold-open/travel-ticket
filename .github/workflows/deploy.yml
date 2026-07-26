@@ -1,0 +1,98 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travel-ticket-production
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_URL: https://mf-travel-ticket.netmind-ai.workers.dev
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate source
+        run: npm run check
+
+      - name: Validate Worker bundle
+        run: npm run check:worker
+
+  deploy:
+    name: Deploy
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure task queue exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NO_COLOR: "1"
+        run: |
+          queue_list="$(npx wrangler queues list)"
+          if ! printf '%s\n' "$queue_list" \
+            | grep -Eq '(^|[^[:alnum:]_-])mf-travel-ticket-tasks([^[:alnum:]_-]|$)'; then
+            npx wrangler queues create "mf-travel-ticket-tasks"
+          fi
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+
+      - name: Configure admin bootstrap secret
+        env:
+          ADMIN_SETTINGS_PASSWORD: ${{ secrets.ADMIN_SETTINGS_PASSWORD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NO_COLOR: "1"
+        run: |
+          if [ -z "$ADMIN_SETTINGS_PASSWORD" ]; then
+            echo "::error::Missing production secret ADMIN_SETTINGS_PASSWORD"
+            exit 1
+          fi
+          printf '%s' "$ADMIN_SETTINGS_PASSWORD" \
+            | npx wrangler secret put ADMIN_SETTINGS_PASSWORD
+
+      - name: Smoke test production
+        run: npm run smoke -- "$PRODUCTION_URL"

@@ -15,13 +15,45 @@ class MockKV {
   }
 }
 
-const makeEnv = () => ({
-  TRIPS_KV: new MockKV(),
-  TRIPS_SITES: new MockKV(),
-  TRIP_WORKFLOW: { create: async (opts) => ({ id: opts.id }) },
-  TURNSTILE_SECRET_KEY: 'sk_test',
-  ASSETS: { fetch: async () => new Response('app shell', { status: 200 }) },
-})
+class MockTripJobs {
+  constructor() {
+    this.statuses = new Map()
+    this.owners = new Map()
+    this.started = []
+  }
+  idFromName(id) { return id }
+  get(id) {
+    return {
+      getStatus: async () => this.statuses.get(id) ?? null,
+      getVisitorId: async () => this.owners.get(id) ?? null,
+      start: async () => {
+        const current = this.statuses.get(id)
+        if (!current) return null
+        if (current.phase === 'draft') this.started.push(id)
+        const next = current.phase === 'draft' ? { ...current, phase: 'queued' } : current
+        this.statuses.set(id, next)
+        return next
+      },
+    }
+  }
+}
+
+const makeEnv = () => {
+  const assetRequests = []
+  return {
+    TRIPS_KV: new MockKV(),
+    TRIPS_SITES: new MockKV(),
+    TRIP_JOBS: new MockTripJobs(),
+    TURNSTILE_SECRET_KEY: 'sk_test',
+    ASSETS: {
+      fetch: async (request) => {
+        assetRequests.push(new URL(request.url).pathname)
+        return new Response('app shell', { status: 200 })
+      },
+    },
+    assetRequests,
+  }
+}
 
 test('handleFetch: GET /api/config routes to handleConfig', async () => {
   const env = makeEnv()
@@ -39,48 +71,105 @@ test('handleFetch: unknown API path -> 404 JSON', async () => {
   assert.equal(res.headers.get('content-type'), 'application/json; charset=utf-8')
 })
 
-test('handleFetch: GET /api/trips/:id/status with wrong method -> 405', async () => {
+test('handleFetch: canonical GET /api/trips/:id returns the workflow snapshot', async () => {
   const env = makeEnv()
-  const res = await handleFetch(new Request('https://example.com/api/trips/trip_x/status', { method: 'POST' }), env)
+  env.TRIP_JOBS.statuses.set('trip_test', { phase: 'draft', trip_id: 'trip_test' })
+  env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
+  const res = await handleFetch(new Request('https://example.com/api/trips/trip_test'), env)
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.equal(body.phase, 'draft')
+  assert.equal(body.links.connect, '/trips/trip_test/connect')
+})
+
+test('handleFetch: legacy GET /api/trips/:id/status remains available', async () => {
+  const env = makeEnv()
+  env.TRIP_JOBS.statuses.set('trip_test', { phase: 'running', trip_id: 'trip_test' })
+  const res = await handleFetch(new Request('https://example.com/api/trips/trip_test/status'), env)
+  assert.equal(res.status, 200)
+})
+
+test('handleFetch: POST /api/trips/:id/start is idempotent and starts a draft', async () => {
+  const env = makeEnv()
+  env.TRIP_JOBS.statuses.set('trip_test', { phase: 'draft', trip_id: 'trip_test' })
+  env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
+  const res = await handleFetch(
+    new Request('https://example.com/api/trips/trip_test/start', {
+      method: 'POST',
+      headers: { cookie: 'travel_ticket_visitor=visitor_abcdef01' },
+    }),
+    env,
+  )
+  assert.equal(res.status, 202)
+  const again = await handleFetch(
+    new Request('https://example.com/api/trips/trip_test/start', {
+      method: 'POST',
+      headers: { cookie: 'travel_ticket_visitor=visitor_abcdef01' },
+    }),
+    env,
+  )
+  assert.equal(again.status, 202)
+  assert.deepEqual(env.TRIP_JOBS.started, ['trip_test'])
+  assert.equal((await res.json()).phase, 'queued')
+})
+
+test('handleFetch: start rejects cross-site requests before changing the draft', async () => {
+  const env = makeEnv()
+  env.TRIP_JOBS.statuses.set('trip_test', { phase: 'draft', trip_id: 'trip_test' })
+  env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
+  const res = await handleFetch(
+    new Request('https://example.com/api/trips/trip_test/start', {
+      method: 'POST',
+      headers: {
+        cookie: 'travel_ticket_visitor=visitor_abcdef01',
+        origin: 'https://attacker.example',
+      },
+    }),
+    env,
+  )
+  assert.equal(res.status, 403)
+  assert.deepEqual(env.TRIP_JOBS.started, [])
+})
+
+test('handleFetch: wrong API method -> 405 with Allow header', async () => {
+  const env = makeEnv()
+  const res = await handleFetch(
+    new Request('https://example.com/api/trips/trip_test/status', { method: 'POST' }),
+    env,
+  )
   assert.equal(res.status, 405)
+  assert.equal(res.headers.get('allow'), 'GET')
 })
 
-test('handleFetch: GET /api/trips/:id/status routes to handleTripStatus (404 for unknown trip)', async () => {
+test('handleFetch: new trip-scoped connector status route verifies the owner cookie', async () => {
   const env = makeEnv()
-  const res = await handleFetch(new Request('https://example.com/api/trips/trip_unknown/status'), env)
-  assert.equal(res.status, 404)
-})
-
-test('handleFetch: POST /api/trips/:id/connect/:provider/link routes correctly', async () => {
-  const env = makeEnv({ })
-  env.COMPOSIO_API_KEY = undefined // no key configured -> configuration_required, but still a 200 (route reached)
-  const res = await handleFetch(
-    new Request('https://example.com/api/trips/trip_x/connect/gmail/link?visitor_id=visitor_abcdef01', { method: 'POST' }),
-    env,
-  )
+  env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
+  const res = await handleFetch(new Request(
+    'https://example.com/api/trips/trip_test/connectors/gmail',
+    { headers: { cookie: 'travel_ticket_visitor=visitor_abcdef01' } },
+  ), env)
   assert.equal(res.status, 200)
-  const body = await res.json()
-  assert.equal(body.connector, 'gmail')
+  assert.equal(typeof (await res.json()).connected, 'boolean')
 })
 
-test('handleFetch: GET /api/trips/:id/connect/:provider/status routes correctly', async () => {
+test('handleFetch: legacy connector route upgrades the query visitor', async () => {
   const env = makeEnv()
-  const res = await handleFetch(
-    new Request('https://example.com/api/trips/trip_x/connect/gmail/status?visitor_id=visitor_abcdef01'),
-    env,
-  )
+  env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
+  const res = await handleFetch(new Request(
+    'https://example.com/api/trips/trip_test/connect/gmail/status?visitor_id=visitor_abcdef01',
+  ), env)
   assert.equal(res.status, 200)
-  const body = await res.json()
-  assert.equal(typeof body.connected, 'boolean')
+  assert.match(res.headers.get('set-cookie'), /^travel_ticket_visitor=/)
 })
 
-test('handleFetch: GET /trips/<unknown>/ -> 404', async () => {
+test('handleFetch: GET /trips/<unknown>/ -> branded HTML 404', async () => {
   const env = makeEnv()
   const res = await handleFetch(new Request('https://example.com/trips/no-such-trip/'), env)
   assert.equal(res.status, 404)
+  assert.match(res.headers.get('content-type'), /^text\/html/)
 })
 
-test('handleFetch: GET /trips/<known>/ -> 200 index.html with text/html content-type', async () => {
+test('handleFetch: GET /trips/<known>/ -> 200 index.html', async () => {
   const env = makeEnv()
   await saveTripFiles(env, 'trip_known', new Map([['index.html', '<html><body>hi</body></html>']]))
   const res = await handleFetch(new Request('https://example.com/trips/trip_known/'), env)
@@ -88,14 +177,24 @@ test('handleFetch: GET /trips/<known>/ -> 200 index.html with text/html content-
   assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8')
 })
 
-test('handleFetch: GET /trips/<known> (no trailing slash) also serves index.html', async () => {
+test('handleFetch: /trips/<known> redirects to the trailing-slash canonical URL', async () => {
   const env = makeEnv()
-  await saveTripFiles(env, 'trip_known', new Map([['index.html', '<html></html>']]))
   const res = await handleFetch(new Request('https://example.com/trips/trip_known'), env)
-  assert.equal(res.status, 200)
+  assert.equal(res.status, 308)
+  assert.equal(res.headers.get('location'), '/trips/trip_known/')
 })
 
-test('handleFetch: GET /trips/<known>/manifest.webmanifest -> correct content-type', async () => {
+test('handleFetch: draft and active trip roots redirect to the correct UI page', async () => {
+  const env = makeEnv()
+  env.TRIP_JOBS.statuses.set('trip_draft', { phase: 'draft' })
+  env.TRIP_JOBS.statuses.set('trip_active', { phase: 'running' })
+  const draft = await handleFetch(new Request('https://example.com/trips/trip_draft/'), env)
+  const active = await handleFetch(new Request('https://example.com/trips/trip_active/'), env)
+  assert.equal(draft.headers.get('location'), '/trips/trip_draft/connect')
+  assert.equal(active.headers.get('location'), '/trips/trip_active/progress')
+})
+
+test('handleFetch: generated manifest has the correct content type', async () => {
   const env = makeEnv()
   await saveTripFiles(env, 'trip_known', new Map([['manifest.webmanifest', '{}']]))
   const res = await handleFetch(new Request('https://example.com/trips/trip_known/manifest.webmanifest'), env)
@@ -103,11 +202,31 @@ test('handleFetch: GET /trips/<known>/manifest.webmanifest -> correct content-ty
   assert.equal(res.headers.get('content-type'), 'application/manifest+json; charset=utf-8')
 })
 
-test('handleFetch: unmatched path falls through to the ASSETS binding (static app-shell)', async () => {
+test('handleFetch: resource-scoped UI pages serve committed assets', async () => {
   const env = makeEnv()
-  const res = await handleFetch(new Request('https://example.com/connect.html'), env)
+  env.TRIP_JOBS.statuses.set('trip_test', { phase: 'draft', trip_id: 'trip_test' })
+  const res = await handleFetch(new Request('https://example.com/trips/trip_test/connect'), env)
   assert.equal(res.status, 200)
-  assert.equal(await res.text(), 'app shell')
+  assert.equal(env.assetRequests.at(-1), '/connect')
+})
+
+test('handleFetch: legacy page URLs redirect to resource-scoped routes', async () => {
+  const env = makeEnv()
+  const res = await handleFetch(new Request('https://example.com/progress.html?trip=trip_test'), env)
+  assert.equal(res.status, 308)
+  assert.equal(res.headers.get('location'), '/trips/trip_test/progress')
+})
+
+test('handleFetch: /settings is canonical and restricted to GET/HEAD', async () => {
+  const env = makeEnv()
+  const get = await handleFetch(new Request('https://example.com/settings'), env)
+  const legacy = await handleFetch(new Request('https://example.com/settings.html'), env)
+  const post = await handleFetch(new Request('https://example.com/settings', { method: 'POST' }), env)
+  assert.equal(get.status, 200)
+  assert.equal(env.assetRequests.at(-1), '/settings')
+  assert.equal(legacy.status, 308)
+  assert.equal(legacy.headers.get('location'), '/settings')
+  assert.equal(post.status, 405)
 })
 
 test('handleFetch: bare / falls through to the ASSETS binding', async () => {

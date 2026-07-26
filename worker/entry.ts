@@ -1,6 +1,16 @@
-// The real wrangler `main` (Task 9). Zero logic of its own — just re-exports
-// worker/index.mjs's portable, node:test-covered fetch handler alongside
-// TripPipelineWorkflow, which Cloudflare Workflows bindings require to be an
-// export of the main script itself (see worker/index.mjs's header comment).
-export { default } from './index.mjs'
-export { TripPipelineWorkflow } from './pipeline-workflow.ts'
+// Cloudflare entrypoint. HTTP stays in the portable MJS router; asynchronous
+// orchestration is our own Durable Object + Queue state machine.
+import httpHandler from './index.mjs'
+import { handleTripTaskBatch } from './trip-task'
+import { resolveRuntimeEnv } from './admin/settings.mjs'
+import type { Env } from './env.d.ts'
+import type { TripQueueMessage } from './trip-job'
+
+export { TripJob } from './trip-job'
+
+export default {
+  fetch: httpHandler.fetch,
+  async queue(batch: MessageBatch<TripQueueMessage>, env: Env): Promise<void> {
+    return handleTripTaskBatch(batch, await resolveRuntimeEnv(env))
+  },
+}

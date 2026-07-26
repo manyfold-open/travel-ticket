@@ -1,5 +1,5 @@
-// 主題註冊表 — theme = DESIGN.md token 的覆寫集，不是新設計系統。
-// 治理：新 theme 的每個色都要過 scripts/check-theme-contrast.mjs 再登記 DESIGN.md。
+// 主題註冊表 — theme = docs/design-system.md token 的覆寫集，不是新設計系統。
+// 治理：新 theme 的每個色都要過 scripts/check-theme-contrast.mjs 再登記 docs/design-system.md。
 // default 的值必須與 render.mjs :root 完全一致（那邊才是唯一真實來源的實體）。
 
 export const DEFAULT_TOKENS = {

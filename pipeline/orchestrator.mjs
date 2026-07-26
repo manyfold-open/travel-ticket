@@ -146,7 +146,6 @@ async function main() {
     trip_dir: tripDir,
     json_path: 'data/final_itinerary.json',
     agent_statuses: plan.agentStatuses,
-    deployment_status: 'awaiting_approval',
   }, null, 2))
 }
 

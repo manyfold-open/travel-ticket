@@ -22,7 +22,7 @@
           <label for="sentence" class="sr-only">用一句話描述你的旅程</label>
           <textarea id="sentence" name="sentence" placeholder="例：十月中帶另一半從台北去京都四天，賞楓吃和食，步調放鬆不趕行程，搭大眾運輸"></textarea>
           <div id="turnstile-container" style="margin-top:16px"></div>
-          <p class="notice" id="config-notice" hidden>Turnstile 尚未設定完成，出票請求目前會被伺服器拒絕——請稍後再試。</p>
+          <p class="notice" id="config-notice" hidden>服務尚未完成設定，出票功能暫時不可用——請稍後再試。</p>
           <div class="controls">
             <button type="button" class="cta" id="punch">出票 · Punch It</button>
           </div>
@@ -45,16 +45,6 @@
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <script>
 const $ = (id) => document.getElementById(id)
-const VISITOR_ID_KEY = 'trip_ticket_visitor_id'
-
-function getVisitorId() {
-  let id = localStorage.getItem(VISITOR_ID_KEY)
-  if (!id || !/^[A-Za-z0-9_-]{8,128}$/.test(id)) {
-    id = 'visitor_' + crypto.randomUUID().replace(/-/g, '')
-    localStorage.setItem(VISITOR_ID_KEY, id)
-  }
-  return id
-}
 
 let turnstileToken = null
 let turnstileRequired = false
@@ -65,10 +55,11 @@ async function setupTurnstile() {
     const res = await fetch('/api/config')
     config = await res.json()
   } catch {
-    config = { turnstile_site_key: null }
+    config = { ready: false, turnstile_site_key: null }
   }
-  if (!config.turnstile_site_key) {
+  if (!config.ready || !config.turnstile_site_key) {
     $('config-notice').hidden = false
+    $('punch').disabled = true
     return
   }
   turnstileRequired = true
@@ -93,7 +84,6 @@ $('punch').addEventListener('click', async () => {
     $('error').textContent = '請先完成驗證（Turnstile）。'
     return
   }
-  const visitorId = getVisitorId()
   $('punch').setAttribute('aria-disabled', 'true')
   $('punch').textContent = '出票中 · Punching...'
   let res
@@ -101,7 +91,7 @@ $('punch').addEventListener('click', async () => {
     res = await fetch('/api/trips', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence, visitor_id: visitorId, turnstile_token: turnstileToken }),
+      body: JSON.stringify({ sentence, turnstile_token: turnstileToken }),
     })
   } catch {
     $('error').textContent = '連不到伺服器，請確認網路連線後再試一次。'
@@ -119,7 +109,7 @@ $('punch').addEventListener('click', async () => {
     return
   }
   const body = await res.json()
-  location.href = `/connect.html?trip=${encodeURIComponent(body.trip_id)}`
+  location.href = body.links?.connect || `/trips/${encodeURIComponent(body.trip_id)}/connect`
 })
 </script>
 </body>

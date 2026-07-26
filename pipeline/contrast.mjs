@@ -1,4 +1,4 @@
-// DESIGN.md 對比鐵律的單一真實來源。CI 腳本(scripts/check-theme-contrast.mjs)
+// docs/design-system.md 對比鐵律的單一真實來源。CI 腳本(scripts/check-theme-contrast.mjs)
 // 與 runtime 守門(pipeline/customTheme.mjs)都 import 這裡,規則只此一份。
 const lum = (hex) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -11,7 +11,7 @@ export const ratio = (a, b) => {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-// [前景, 背景, 最低比值, 說明] — 來源:DESIGN.md「對比鐵律」與現役用法。
+// [前景, 背景, 最低比值, 說明] — 來源:docs/design-system.md「對比鐵律」與現役用法。
 export const contrastPairs = (t) => [
   [t.ink, t.paper, 4.5, 'ink on paper'],
   [t.muted, t.paper, 4.5, 'muted on paper'],
@@ -28,7 +28,7 @@ export const contrastPairs = (t) => [
   [t['paper-ghost'], t.night, 4.5, 'paper-ghost on night (weak data)'],
 ]
 
-export const HEX_RE = /^#[0-9a-f]{6}$/i
+const HEX_RE = /^#[0-9a-f]{6}$/i
 
 export function checkTokens(tokens) {
   const failures = []

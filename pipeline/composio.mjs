@@ -41,7 +41,7 @@ const connector = (name) => {
   return CONNECTORS[name]
 }
 
-export function createComposioClient(apiKey = envVar('COMPOSIO_API_KEY')) {
+function createComposioClient(apiKey = envVar('COMPOSIO_API_KEY')) {
   if (!apiKey) throw new Error('COMPOSIO_API_KEY not set; connector data cannot be read')
   // The SDK sends x-api-key for every backend request, including projects where
   // that header became mandatory in March 2026.
@@ -164,7 +164,7 @@ export async function fetchNotionContext({ visitorId, destination, client }) {
   return { ...connected.status, query, pages }
 }
 
-// Compatibility adapter for the non-MCP CLI pipeline. It deliberately requires
+// Adapter for the local CLI pipeline. It deliberately requires
 // COMPOSIO_USER_ID: no implicit or shared account is ever selected.
 export async function mcpSession({ userId = envVar('COMPOSIO_USER_ID'), client, apiKey = envVar('COMPOSIO_API_KEY') } = {}) {
   const visitorId = requireVisitorId(userId)

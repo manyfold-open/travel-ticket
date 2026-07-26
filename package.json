@@ -1,29 +1,33 @@
 {
-  "name": "trip-ticket-pipeline",
+  "name": "mf-travel-ticket",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "studio": "node pipeline/server.mjs",
+    "dev": "wrangler dev --port 8788",
+    "studio:local": "node pipeline/server.mjs",
     "mcp": "node pipeline/mcp-server.mjs",
     "plan": "node pipeline/orchestrator.mjs",
     "plan:mock": "node pipeline/orchestrator.mjs --mock",
     "demo": "node scripts/generate-itinerary-preview.mjs",
     "composio:smoke": "node scripts/composio-smoke.mjs",
-    "deploy": "wrangler deploy --config wrangler.itinerary.toml",
-    "test": "TRIP_NO_LLM=1 node --test 'tests/**/*.test.mjs'"
+    "typecheck": "tsc --noEmit",
+    "test": "TRIP_NO_LLM=1 node --test 'tests/**/*.test.mjs'",
+    "check:contrast": "node scripts/check-theme-contrast.mjs",
+    "check:repo": "node scripts/validate-repository.mjs",
+    "check:browser": "node scripts/validate-browser.mjs",
+    "check:scripts": "for file in scripts/*.mjs; do node --check \"$file\"; done && bash -n scripts/smoke-production.sh",
+    "check": "npm run typecheck && npm test && npm run check:contrast && npm run check:repo && npm run check:browser && npm run check:scripts",
+    "check:worker": "wrangler deploy --dry-run",
+    "smoke": "bash scripts/smoke-production.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@composio/core": "^0.13.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260715.1",
+    "@cloudflare/workers-types": "^5.20260726.1",
     "typescript": "^5.5.0",
-    "wrangler": "^4.111.0"
-  },
-  "allowScripts": {
-    "esbuild@0.17.19": true,
-    "workerd@1.20250718.0": true
+    "wrangler": "^4.114.0"
   }
 }

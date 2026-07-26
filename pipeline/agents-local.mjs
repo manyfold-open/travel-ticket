@@ -7,7 +7,7 @@
 //   cli — headless `claude -p` (Claude Code login / subscription, no API key).
 //         JSON is requested by prompt and validated by parsing.
 // Also owns poster generation (codex CLI / Gemini API / manual), which is
-// local-only — the deployed Worker's pipeline has no poster step (spec §3).
+// local-only — the deployed Worker's DAG intentionally has no poster step.
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -76,7 +76,7 @@ const extractJson = (text) => {
   return JSON.parse(stripped.slice(start, end + 1))
 }
 
-export async function runCliJson({ system, prompt, schema, webSearch = false }) {
+async function runCliJson({ system, prompt, schema, webSearch = false }) {
   const args = ['-p', '--output-format', 'json', '--append-system-prompt', system]
   if (process.env.PIPELINE_CLAUDE_MODEL) args.push('--model', process.env.PIPELINE_CLAUDE_MODEL)
   if (webSearch) args.push('--allowedTools', 'WebSearch,WebFetch')

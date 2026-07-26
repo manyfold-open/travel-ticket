@@ -1,7 +1,10 @@
 node_modules/
+.DS_Store
 .trip_work/
 dist/
 data/posters/
 data/trips/
 .env
+.env.*
+.dev.vars
 .wrangler/

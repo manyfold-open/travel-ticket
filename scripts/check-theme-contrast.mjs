@@ -1,4 +1,4 @@
-// DESIGN.md 對比鐵律的可執行版。規則本體在 pipeline/contrast.mjs(單一真實來源)。
+// docs/design-system.md 對比鐵律的可執行版。規則本體在 pipeline/contrast.mjs(單一真實來源)。
 // 用法:node scripts/check-theme-contrast.mjs (任何一對不及格 → exit 1)
 import { THEMES, mergedTokens } from '../pipeline/themes.mjs'
 import { contrastPairs, ratio } from '../pipeline/contrast.mjs'

@@ -38,11 +38,12 @@
   </div>
 </main>
 <script>
-const AGENTS = ['Trip Brief Agent', 'Timezone Agent', 'Local Discovery Agent', 'Travel Context Agent', 'Calendar Agent', 'Notion Agent', 'Itinerary Composer Agent']
+const AGENTS = ['Trip Brief Agent', 'Timezone Agent', 'Local Discovery Agent', 'Travel Context Agent', 'Calendar Agent', 'Notion Agent', 'Itinerary Composer Agent', 'Theme Designer Agent']
 const $ = (id) => document.getElementById(id)
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 const params = new URLSearchParams(location.search)
-const tripId = params.get('trip')
+const pathMatch = location.pathname.match(/^\/trips\/([^/]+)\/progress\/?$/)
+const tripId = pathMatch ? decodeURIComponent(pathMatch[1]) : params.get('trip')
 
 let lastAnnounced = ''
 function announce(text) {
@@ -54,12 +55,12 @@ function announce(text) {
 // diff-guard, same pattern as pipeline/studio.html's poll(): innerHTML rebuild
 // resets focus/blink animation, so skip it when nothing actually changed.
 let lastAgentsKey = ''
-function renderAgents(agents, running) {
-  const key = JSON.stringify([agents, running])
+function renderAgents(agents) {
+  const key = JSON.stringify(agents)
   if (key === lastAgentsKey) return
   lastAgentsKey = key
   $('agents').innerHTML = AGENTS.map((name) => {
-    const s = esc(agents[name] || (running ? 'running' : 'pending'))
+    const s = esc(agents[name] || 'pending')
     return `<div class="agent-row" data-s="${s}"><span class="dot"></span><span>${esc(name.replace(' Agent', ''))}</span><span class="agent-status">${s}</span></div>`
   }).join('')
 }
@@ -81,7 +82,7 @@ let pollFailures = 0
 async function poll() {
   let s
   try {
-    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/status`)
+    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}`)
     if (!res.ok) throw new Error(String(res.status))
     s = await res.json()
     pollFailures = 0
@@ -92,9 +93,12 @@ async function poll() {
   }
   const phaseChanged = s.phase !== lastPhase
   lastPhase = s.phase
-  renderAgents(s.agents || {}, s.phase === 'running' || s.phase === 'queued')
+  renderAgents(s.agents || {})
   renderLog(s.log)
-  if (s.phase === 'queued') {
+  if (s.phase === 'draft') {
+    clearInterval(polling); polling = null
+    location.href = s.links?.connect || `/trips/${encodeURIComponent(tripId)}/connect`
+  } else if (s.phase === 'queued') {
     announce('排隊中，即將開始')
   } else if (s.phase === 'running') {
     const doneCount = Object.values(s.agents || {}).filter((v) => v !== 'running' && v !== 'pending').length
@@ -102,7 +106,7 @@ async function poll() {
   } else if (s.phase === 'done') {
     clearInterval(polling); polling = null
     if (phaseChanged) announce('手冊完成，正在打開')
-    location.href = `/trips/${encodeURIComponent(tripId)}/`
+    location.href = s.links?.result || `/trips/${encodeURIComponent(tripId)}/`
   } else if (s.phase === 'error') {
     clearInterval(polling); polling = null
     $('error').textContent = '出票失敗：' + (s.error || '原因不明，請重新從首頁再試一次。')

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Trip Ticket Studio — local web entry point for the pipeline.
+// Trip Ticket Local Studio — developer-only entry point for the filesystem
+// pipeline. The canonical application and /settings live in Wrangler.
 //   node pipeline/server.mjs [port]
 // GET  /            input page (paste a one-sentence trip request)
 // POST /api/plan    { sentence, mock? } → spawns the orchestrator
-// POST /api/deploy  spawns `wrangler deploy`（deployment_status: awaiting_approval —— 按了才跑）
 // GET  /api/status  live pipeline state (polled by the input page)
 // GET  /trip/*      serves the generated site in dist/
+// GET  /settings    redirects to the canonical Wrangler application
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -16,6 +17,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(here, '..')
 const distDir = path.join(packageRoot, 'dist')
 const port = Number(process.argv[2] || process.env.PORT || 4747)
+const workerDevOrigin = new URL(process.env.WORKER_DEV_URL || 'http://localhost:8788').origin
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' }
 
@@ -31,66 +33,6 @@ const state = {
 }
 
 const AGENT_LINE = /^\[orchestrator\] (.+?(?:Agent|Composer)): (completed|failed|timeout|skipped)/
-
-// 部署狀態（誠實流程：manifest 印 deployment_status: awaiting_approval，
-// 只有使用者按了「部署」、這裡才真的 spawn wrangler）。
-const deploy = {
-  phase: 'idle', // idle | running | done | error
-  startedAt: null,
-  finishedAt: null,
-  log: [],
-  error: null,
-  url: null,
-}
-
-const dlog = (line) => {
-  deploy.log.push(line)
-  if (deploy.log.length > 200) deploy.log.splice(0, deploy.log.length - 200)
-}
-
-function startDeploy() {
-  Object.assign(deploy, { phase: 'running', startedAt: Date.now(), finishedAt: null, log: [], error: null, url: null })
-  // 優先用專案自己的 wrangler（devDependencies 有裝），沒有再試 PATH。
-  const localBin = path.join(packageRoot, 'node_modules', '.bin', 'wrangler')
-  const bin = fs.existsSync(localBin) ? localBin : 'wrangler'
-  dlog('[deploy] wrangler deploy --config wrangler.itinerary.toml')
-  const child = spawn(bin, ['deploy', '--config', 'wrangler.itinerary.toml'], { cwd: packageRoot })
-  let tail = ''
-  const onData = (d) => {
-    // wrangler 非 TTY 也吐 ANSI 色碼，進 logbox 會變亂碼——剝掉，錯誤才讀得懂。
-    const plain = String(d).replace(/\x1b\[[0-9;]*m/g, '')
-    tail = (tail + plain).slice(-4000)
-    for (const line of plain.split('\n')) {
-      const trimmed = line.trim()
-      if (trimmed) dlog(`[deploy] ${trimmed}`)
-    }
-  }
-  child.stdout.on('data', onData)
-  child.stderr.on('data', onData)
-  child.on('close', (code) => {
-    if (deploy.phase !== 'running') return // spawn error 已經收尾過
-    deploy.finishedAt = Date.now()
-    if (code === 0) {
-      deploy.phase = 'done'
-      deploy.url = tail.match(/https:\/\/\S+\.workers\.dev\S*/)?.[0] ?? null
-      if (state.manifest) state.manifest.deployment_status = 'deployed'
-      dlog(`[deploy] 部署完成${deploy.url ? ` → ${deploy.url}` : ''}`)
-    } else {
-      deploy.phase = 'error'
-      const lastLines = tail.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' / ')
-      deploy.error = `wrangler exited ${code}：${lastLines || '沒有輸出——先在終端跑 npx wrangler login，或用 npm run deploy 看完整錯誤'}`
-      dlog(`[deploy] 部署失敗：${deploy.error}`)
-    }
-  })
-  child.on('error', (err) => {
-    deploy.phase = 'error'
-    deploy.finishedAt = Date.now()
-    deploy.error = err.code === 'ENOENT'
-      ? 'wrangler 不存在——先 npm install（devDependencies 已列 wrangler）或全域安裝，再按一次「部署」'
-      : err.message
-    dlog(`[deploy] 部署失敗：${deploy.error}`)
-  })
-}
 
 function startRun(sentence, mock) {
   Object.assign(state, {
@@ -175,7 +117,7 @@ const send = (res, code, body, type = 'application/json') => {
 // handler 沒接住就是整個 server 陣亡——decode 失敗回 null 由呼叫端 404。
 const safeDecode = (text) => { try { return decodeURIComponent(text) } catch { return null } }
 // CSRF 防護：跨站的 simple POST（<form>／bodyless fetch，無 preflight）一定帶 Origin——
-// 不是本機 studio 的一律 403，否則任意網頁能替使用者按「部署」，繞過 awaiting_approval 誠實流程。
+// 不是本機 studio 的一律 403，否則任意網頁都能替使用者啟動昂貴的 agent pipeline。
 // 沒帶 Origin 的（curl、同源導航）放行。
 const originOk = (req) => {
   const origin = req.headers.origin
@@ -191,16 +133,18 @@ http.createServer((req, res) => {
     return send(res, 200, fs.readFileSync(path.join(here, 'studio.html')), TYPES['.html'])
   }
 
+  if (url.pathname === '/settings' || url.pathname === '/settings/') {
+    res.writeHead(307, { location: `${workerDevOrigin}/settings` })
+    return res.end()
+  }
+
   if (url.pathname === '/api/status') {
-    return send(res, 200, { ...state, elapsed_ms: state.startedAt ? (state.finishedAt ?? Date.now()) - state.startedAt : 0, trip: currentTrip(), trips: allTrips(), deploy })
+    return send(res, 200, { ...state, elapsed_ms: state.startedAt ? (state.finishedAt ?? Date.now()) - state.startedAt : 0, trip: currentTrip(), trips: allTrips() })
   }
 
   if (url.pathname === '/api/plan' && req.method === 'POST') {
     if (!originOk(req)) return send(res, 403, { error: 'cross-origin request rejected' })
     if (state.phase === 'running') return send(res, 409, { error: 'a run is already in progress' })
-    // 反向互斥（/api/deploy 已擋 pipeline running）：wrangler 正在讀 dist 上傳，
-    // 這時重寫 dist 會部署出新舊混雜的站。
-    if (deploy.phase === 'running') return send(res, 409, { error: '部署還在跑——等 wrangler 完成再出票' })
     let body = ''
     let tooBig = false
     req.on('data', (d) => {
@@ -225,16 +169,11 @@ http.createServer((req, res) => {
     return
   }
 
-  if (url.pathname === '/api/deploy' && req.method === 'POST') {
-    if (!originOk(req)) return send(res, 403, { error: 'cross-origin request rejected' })
-    if (deploy.phase === 'running') return send(res, 409, { error: '部署已經在跑了——看 logbox 的進度' })
-    if (state.phase === 'running') return send(res, 409, { error: 'pipeline 還在出票——等手冊完成再部署' })
-    if (!fs.existsSync(path.join(distDir, 'index.html'))) return send(res, 409, { error: '還沒有手冊可以部署——先出一張票' })
-    startDeploy()
-    return send(res, 202, { ok: true })
+  if (url.pathname === '/trip') {
+    res.writeHead(308, { location: `/trip/${url.search}` })
+    return res.end()
   }
-
-  if (url.pathname === '/trip' || url.pathname === '/trip/') {
+  if (url.pathname === '/trip/') {
     const file = path.join(distDir, 'index.html')
     if (!fs.existsSync(file)) return send(res, 404, '還沒有產生任何行程 — 回 <a href="/">入口</a> 出一張票。', TYPES['.html'])
     return send(res, 200, fs.readFileSync(file), TYPES['.html'])
@@ -251,6 +190,10 @@ http.createServer((req, res) => {
     res.writeHead(302, { location: '/' })
     return res.end()
   }
+  if (/^\/trips\/[^/]+$/.test(url.pathname)) {
+    res.writeHead(308, { location: `${url.pathname}/${url.search}` })
+    return res.end()
+  }
   if (url.pathname.startsWith('/trips/')) {
     let rel = safeDecode(url.pathname.slice('/trips/'.length))
     if (rel === null) return send(res, 404, '這個網址壞掉了 — 回 <a href="/">入口</a> 從票夾重新點。', TYPES['.html'])
@@ -265,7 +208,7 @@ http.createServer((req, res) => {
   }
 
   send(res, 404, 'not found', 'text/plain')
-  // 只綁 loopback：這是本機 studio，不是給區網用的——0.0.0.0 會讓鄰居能打 /api/deploy。
+  // 只綁 loopback：Studio 會啟動本機 agent pipeline，不應暴露到區網。
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Trip Ticket Studio → http://localhost:${port}`)
+  console.log(`Trip Ticket Local Studio → http://localhost:${port}`)
 })

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { callMfAgent, extractAgentText, runMfJson } from '../pipeline/mf-client.mjs'
 
-const ENV = { MF_API_URL: 'https://api-staging.manyfold.ai/api', MF_API_TOKEN: 'self-token', MF_AGENT_ID: 'agt_self' }
+const ENV = { MF_API_URL: 'https://api.manyfold.ai/api', MF_API_TOKEN: 'self-token', MF_AGENT_ID: 'agt_self' }
 
 function withFetch(handler, fn) {
   const original = globalThis.fetch
@@ -20,6 +20,7 @@ test('callMfAgent: mints a peer token then posts JSON-RPC message/send', () => w
   assert.equal(opts.headers.authorization, 'Bearer peer-token')
   const body = JSON.parse(opts.body)
   assert.equal(body.method, 'message/send')
+  assert.deepEqual(body.params.configuration, { blocking: false })
   assert.equal(body.params.message.parts[0].text, 'hello')
   return new Response(JSON.stringify({ result: { parts: [{ text: 'world' }] } }), { status: 200 })
 }, async () => {
@@ -27,7 +28,7 @@ test('callMfAgent: mints a peer token then posts JSON-RPC message/send', () => w
   assert.equal(text, 'world')
 }))
 
-test('callMfAgent: retries once on 5xx then succeeds', () => withFetch((() => {
+test('callMfAgent: retries only when the caller opts in', () => withFetch((() => {
   let calls = 0
   return async (url) => {
     if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
@@ -36,27 +37,112 @@ test('callMfAgent: retries once on 5xx then succeeds', () => withFetch((() => {
     return new Response(JSON.stringify({ result: { parts: [{ text: 'ok' }] } }), { status: 200 })
   }
 })(), async () => {
-  const text = await callMfAgent(ENV, 'agt_peer', 'hello')
+  const text = await callMfAgent(ENV, 'agt_retry', 'hello', { attempts: 2, retryDelayMs: 0 })
   assert.equal(text, 'ok')
 }))
 
-test('callMfAgent: 4xx fails fast, no retry', () => withFetch((() => {
+test('callMfAgent: 4xx fails fast, no retry', () => {
   let rpcCalls = 0
-  return async (url) => {
+  return withFetch(async (url) => {
     if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     rpcCalls++
     return new Response('bad request', { status: 400 })
-  }
-})(), async () => {
-  await assert.rejects(() => callMfAgent(ENV, 'agt_peer', 'hello'), /400/)
-}))
+  }, async () => {
+    await assert.rejects(() => callMfAgent(ENV, 'agt_4xx', 'hello'), /400/)
+    assert.equal(rpcCalls, 1)
+  })
+})
 
 test('callMfAgent: task state failed → throws with extracted detail', () => withFetch(async (url) => {
   if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
   return new Response(JSON.stringify({ result: { status: { state: 'failed', message: { parts: [{ text: 'agent crashed' }] } } } }), { status: 200 })
 }, async () => {
-  await assert.rejects(() => callMfAgent(ENV, 'agt_peer', 'hello', { attempts: 1 }), /agent crashed/)
+  await assert.rejects(() => callMfAgent(ENV, 'agt_failed', 'hello', { attempts: 1 }), /agent crashed/)
 }))
+
+test('callMfAgent: polls an accepted task without submitting the prompt twice', () => withFetch((() => {
+  const methods = []
+  return async (url, opts) => {
+    if (String(url).includes('/token')) {
+      return new Response(JSON.stringify({
+        token: 'task-token',
+        rpcUrl: 'https://rpc.example/task',
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      }), { status: 200 })
+    }
+    const body = JSON.parse(opts.body)
+    methods.push(body.method)
+    if (body.method === 'message/send') {
+      return new Response(JSON.stringify({
+        result: { id: 'task-1', status: { state: 'submitted' } },
+      }), { status: 200 })
+    }
+    assert.equal(body.method, 'tasks/get')
+    assert.equal(body.params.id, 'task-1')
+    return new Response(JSON.stringify({
+      result: {
+        id: 'task-1',
+        status: { state: 'completed' },
+        artifacts: [{ parts: [{ text: 'completed asynchronously' }] }],
+      },
+    }), { status: 200 })
+  }
+})(), async () => {
+  const states = []
+  const text = await callMfAgent(ENV, 'agt_async', 'hello', {
+    attempts: 1,
+    timeoutMs: 5_000,
+    pollIntervalMs: 0,
+    onTaskState: state => states.push(state),
+  })
+  assert.equal(text, 'completed asynchronously')
+  assert.deepEqual(states, ['submitted', 'completed'])
+}))
+
+test('callMfAgent: reports invalid credential JSON precisely', () => withFetch(
+  async () => new Response('{"token":', { status: 200 }),
+  async () => {
+    await assert.rejects(
+      () => callMfAgent(ENV, 'agt_bad_credential_json', 'hello', { attempts: 1 }),
+      /credential response was not valid JSON/,
+    )
+  },
+))
+
+test('callMfAgent: reports invalid RPC JSON precisely', () => withFetch(async (url) => {
+  if (String(url).includes('/token')) {
+    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/bad-json' }), { status: 200 })
+  }
+  return new Response('{"result":', { status: 200 })
+}, async () => {
+  await assert.rejects(
+    () => callMfAgent(ENV, 'agt_bad_rpc_json', 'hello', { attempts: 1 }),
+    /returned invalid JSON/,
+  )
+}))
+
+test('callMfAgent: isolates cached peer tokens by source agent identity', () => {
+  const mintedFor = []
+  return withFetch(async (url, opts) => {
+    if (String(url).includes('/token')) {
+      const source = new URL(String(url)).searchParams.get('agentId')
+      mintedFor.push(source)
+      return new Response(JSON.stringify({
+        token: `token-${source}`,
+        rpcUrl: `https://rpc.example/${source}`,
+      }), { status: 200 })
+    }
+    return new Response(JSON.stringify({
+      result: { parts: [{ text: opts.headers.authorization }] },
+    }), { status: 200 })
+  }, async () => {
+    const first = await callMfAgent(ENV, 'agt_shared_peer', 'one', { attempts: 1 })
+    const second = await callMfAgent({ ...ENV, MF_AGENT_ID: 'agt_other' }, 'agt_shared_peer', 'two', { attempts: 1 })
+    assert.equal(first, 'Bearer token-agt_self')
+    assert.equal(second, 'Bearer token-agt_other')
+    assert.deepEqual(mintedFor, ['agt_self', 'agt_other'])
+  })
+})
 
 test('extractAgentText: prefers result.parts, then artifacts, then status.message', () => {
   assert.equal(extractAgentText({ result: { parts: [{ text: 'a' }] } }), 'a')
@@ -73,7 +159,7 @@ test('runMfJson: injects schema instructions into the prompt and parses the JSON
   assert.match(sentPrompt, /JSON Schema/)
   return new Response(JSON.stringify({ result: { parts: [{ text: '```json\n{"ok":true}\n```' }] } }), { status: 200 })
 }, async () => {
-  const parsed = await runMfJson(ENV, 'agt_peer', { system: 'system prompt', prompt: 'do the thing', schema: { type: 'object' } })
+  const parsed = await runMfJson(ENV, 'agt_json', { system: 'system prompt', prompt: 'do the thing', schema: { type: 'object' } })
   assert.deepEqual(parsed, { ok: true })
 }))
 
@@ -81,5 +167,5 @@ test('runMfJson: throws when reply has no JSON object', () => withFetch(async (u
   if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
   return new Response(JSON.stringify({ result: { parts: [{ text: 'no json here' }] } }), { status: 200 })
 }, async () => {
-  await assert.rejects(() => runMfJson(ENV, 'agt_peer', { system: 's', prompt: 'p', schema: {} }), /no JSON object/)
+  await assert.rejects(() => runMfJson(ENV, 'agt_no_json', { system: 's', prompt: 'p', schema: {} }), /no JSON object/)
 }))

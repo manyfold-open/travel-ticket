@@ -1,19 +1,13 @@
-// POST /api/trips (Task 7) — Turnstile-gated trip creation. Validates the
-// guest's request, generates trip_id/todayIso HERE (a plain, non-replayed
-// fetch handler — never inside the Workflow, where Date.now()/crypto would be
-// non-deterministic across a replay), triggers the Workflow, and writes the
-// initial 'queued' KV status so /api/trips/:id/status has something to read
-// even before the Workflow's first step completes.
-import { writeStatus } from '../storage.mjs'
+// POST /api/trips — Turnstile-gated trip creation. The request initializes a
+// per-trip Durable Object; that object owns the DAG and publishes executable
+// tasks to the queue.
+import { jsonResponse } from '../http.mjs'
+import { tripLinks } from '../trip-links.mjs'
+import { resolveVisitorSession, withVisitorSession } from '../visitor-session.mjs'
 
-const VISITOR_ID_RE = /^[A-Za-z0-9_-]{8,128}$/
 const MAX_SENTENCE_LENGTH = 500
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const DESIGN_PRESET_NAME_RE = /^[a-z0-9_-]{1,64}$/
-
-function jsonResponse(body, status) {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8' } })
-}
 
 async function verifyTurnstile(env, token, remoteip) {
   if (typeof token !== 'string' || token.length === 0) return false
@@ -26,8 +20,8 @@ async function verifyTurnstile(env, token, remoteip) {
   return result?.success === true
 }
 
-// design is optional (spec §3: custom_theme only runs "訪客選了才跑") — when
-// present it must already match TripWorkflowParams's union shape; the CLI's
+// Design is optional; custom theme work runs only when a visitor selects it.
+// When present it must match TripJobParams's union shape; the CLI's
 // parseDesignChoice (flag-string parsing) is not reused here since the API
 // body carries a structured object, not a --design= flag string.
 function validateDesign(design) {
@@ -70,7 +64,7 @@ export async function handleCreateTrip(request, env) {
     return jsonResponse({ error: 'invalid JSON body' }, 400)
   }
 
-  const { sentence, visitor_id: visitorId, turnstile_token: turnstileToken, design } = body ?? {}
+  const { sentence, visitor_id: legacyVisitorId, turnstile_token: turnstileToken, design } = body ?? {}
 
   const verified = await verifyTurnstile(env, turnstileToken, remoteip)
   if (!verified) {
@@ -80,9 +74,8 @@ export async function handleCreateTrip(request, env) {
   if (typeof sentence !== 'string' || sentence.trim().length === 0 || sentence.length > MAX_SENTENCE_LENGTH) {
     return jsonResponse({ error: `sentence must be a non-empty string up to ${MAX_SENTENCE_LENGTH} characters` }, 400)
   }
-  if (typeof visitorId !== 'string' || !VISITOR_ID_RE.test(visitorId)) {
-    return jsonResponse({ error: 'visitor_id must be an 8-128 character identifier containing only letters, numbers, _ or -' }, 400)
-  }
+  const visitor = resolveVisitorSession(request, legacyVisitorId)
+  if (visitor.error) return jsonResponse({ error: visitor.error }, 400)
   const designResult = validateDesign(design)
   if (!designResult.ok) {
     return jsonResponse({ error: 'design must be omitted or {kind:"preset",name} / {kind:"custom",style}' }, 400)
@@ -91,11 +84,18 @@ export async function handleCreateTrip(request, env) {
   const todayIso = new Date().toISOString()
   const tripId = makeTripId(todayIso)
 
-  await env.TRIP_WORKFLOW.create({
-    id: tripId,
-    params: { tripId, sentence, todayIso, visitorId, design: designResult.design },
+  const job = env.TRIP_JOBS.get(env.TRIP_JOBS.idFromName(tripId))
+  await job.initialize({
+    tripId,
+    sentence: sentence.trim(),
+    todayIso,
+    visitorId: visitor.visitorId,
+    design: designResult.design,
   })
-  await writeStatus(env, tripId, { phase: 'queued', trip_id: tripId, agents: {}, log: [], manifest: null, error: null })
 
-  return jsonResponse({ trip_id: tripId }, 201)
+  const links = tripLinks(tripId)
+  return withVisitorSession(
+    jsonResponse({ trip_id: tripId, phase: 'draft', links }, 201, { location: links.connect }),
+    visitor.setCookie,
+  )
 }

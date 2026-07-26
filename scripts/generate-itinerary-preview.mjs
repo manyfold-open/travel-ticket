@@ -192,5 +192,4 @@ await renderItinerary(itinerary, { outDir: path.join(root, 'dist', 'trips', trip
 console.log(JSON.stringify({
   ...manifest,
   trip_dir: tripDir,
-  deployment_status: 'awaiting_approval',
 }, null, 2))
