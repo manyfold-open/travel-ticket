@@ -2,6 +2,22 @@ const PROJECT_ID = 'travel-ticket'
 const COOKIE_NAME = 'travel_ticket_admin'
 const SETTINGS_KEY = '__admin:runtime-settings:v1'
 const SESSION_TTL_SECONDS = 8 * 60 * 60
+const AGENT_ROUTING_KEYS = [
+  'MF_AGENT_ID',
+  'AGENT_BRIEF',
+  'AGENT_DISCOVERY',
+  'AGENT_CONTEXT_EXTRACTOR',
+  'AGENT_COMPOSER',
+  'AGENT_THEME_DESIGNER',
+]
+const LEGACY_GEMINI_AGENT_IDS = new Set([
+  'agt_agpzmesx6f5prlyvhg77g4arbu',
+  'agt_agpzmetm5ryebfwufjl2h2rb4e',
+  'agt_agpzmeuncr33jpcjvlbtf4owmq',
+  'agt_agpzmevmgr6ktg2ybz57n5icgm',
+  'agt_agpzmewhejz73kqbpembtejhqi',
+  'agt_agpzmexfyb4vrkyev46m5e54fy',
+])
 
 const FIELDS = [
   {
@@ -189,6 +205,7 @@ async function readStoredSettings(env) {
     settings.values = Object.fromEntries(
       Object.entries(settings.values).filter(([key]) => FIELD_KEYS.has(key)),
     )
+    settings.values = migrateLegacyAgentSettings(env, settings.values)
     return { settings }
   } catch {
     return {
@@ -200,6 +217,17 @@ async function readStoredSettings(env) {
 
 function envValue(env, key) {
   return typeof env[key] === 'string' ? env[key] : ''
+}
+
+function migrateLegacyAgentSettings(env, values) {
+  const migrated = { ...values }
+  for (const key of AGENT_ROUTING_KEYS) {
+    const saved = migrated[key]
+    if (!saved || !LEGACY_GEMINI_AGENT_IDS.has(saved)) continue
+    const replacement = envValue(env, key)
+    if (replacement && !LEGACY_GEMINI_AGENT_IDS.has(replacement)) migrated[key] = replacement
+  }
+  return migrated
 }
 
 function effectiveValue(env, values, key) {

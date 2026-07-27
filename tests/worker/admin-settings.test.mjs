@@ -113,6 +113,34 @@ test('admin settings: saves encrypted overrides and resolves them for runtime ca
   assert.equal(runtime.AGENT_BRIEF, 'agt_brief')
 })
 
+test('admin settings: migrates saved legacy Gemini routing IDs to deployed Codex bindings', async () => {
+  const env = makeEnv()
+  const { cookie } = await login(env)
+  const response = await handleAdminSettings(new Request('https://example.com/api/admin/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
+    body: JSON.stringify({
+      values: {
+        MF_AGENT_ID: 'agt_agpzmesx6f5prlyvhg77g4arbu',
+        AGENT_BRIEF: 'agt_agpzmetm5ryebfwufjl2h2rb4e',
+        AGENT_DISCOVERY: 'agt_agpzmeuncr33jpcjvlbtf4owmq',
+        AGENT_CONTEXT_EXTRACTOR: 'agt_agpzmevmgr6ktg2ybz57n5icgm',
+        AGENT_COMPOSER: 'agt_agpzmewhejz73kqbpembtejhqi',
+        AGENT_THEME_DESIGNER: 'agt_agpzmexfyb4vrkyev46m5e54fy',
+      },
+    }),
+  }), env)
+  assert.equal(response.status, 200)
+
+  const runtime = await resolveRuntimeEnv(env)
+  assert.equal(runtime.MF_AGENT_ID, 'agt_source')
+  assert.equal(runtime.AGENT_BRIEF, 'agt_brief')
+  assert.equal(runtime.AGENT_DISCOVERY, 'agt_discovery')
+  assert.equal(runtime.AGENT_CONTEXT_EXTRACTOR, 'agt_context')
+  assert.equal(runtime.AGENT_COMPOSER, 'agt_composer')
+  assert.equal(runtime.AGENT_THEME_DESIGNER, 'agt_theme')
+})
+
 test('admin settings: requires an exact 6-digit application access code', async () => {
   const env = makeEnv()
   const { cookie } = await login(env)
