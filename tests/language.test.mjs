@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, assertSimplifiedChinese, locale, normalizeLanguage } from '../pipeline/language.mjs'
+import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, assertSimplifiedChinese, locale, normalizeLanguage, normalizeLanguageOutput } from '../pipeline/language.mjs'
 import { localCompose } from '../pipeline/trip-core.mjs'
 
 test('language contract defaults to British English and only supports the requested locales', () => {
@@ -33,6 +33,25 @@ test('Chinese fallback composer emits Simplified Chinese copy and rejects Tradit
   assert.throws(() => assertSimplifiedChinese({ summary: '繁體中文' }), /Simplified Chinese/)
   assert.match(output.summary, /行程|本地/u)
   assert.equal(locale('zh-CN').relaxed, '轻松')
+})
+
+test('Chinese normalisation converts Traditional copy without changing URLs or source labels', () => {
+  const input = {
+    summary: '我們的行程',
+    note: '請確認時間',
+    url: 'https://example.test/我們',
+    source_label: '臺灣觀光局',
+    sources: [{ label: '臺灣觀光局', url: 'https://example.test/臺灣' }],
+    request: { sentence: '我想去臺灣' },
+  }
+  const output = normalizeLanguageOutput(input, 'zh-CN')
+  assert.equal(output.summary, '我们的行程')
+  assert.equal(output.note, '请确认时间')
+  assert.equal(output.url, input.url)
+  assert.equal(output.source_label, input.source_label)
+  assert.deepEqual(output.sources, input.sources)
+  assert.deepEqual(output.request, input.request)
+  assert.doesNotThrow(() => assertSimplifiedChinese(output))
 })
 
 test('language selectors are accessible and have a compact mobile-safe control', () => {

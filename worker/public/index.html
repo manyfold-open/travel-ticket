@@ -76,7 +76,7 @@ const HOME_COPY = {
     stamp: '开始生成', empty: '请先描述行程，再生成车票。', server: '无法连接服务器，请检查网络后重试。', retry: '请修正问题后重试。',
   },
 }
-let homeCopy = HOME_COPY.enGB
+let homeCopy = HOME_COPY['en-GB']
 
 function applyHomeLanguage(language) {
   homeCopy = HOME_COPY[language] || HOME_COPY['en-GB']

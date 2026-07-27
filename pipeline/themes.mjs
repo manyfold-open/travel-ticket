@@ -1,4 +1,4 @@
-import { assertLanguageOutput, languagePromptInstructions, normalizeLanguage } from './language.mjs'
+import { assertLanguageOutput, languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput } from './language.mjs'
 
 // Theme registry — theme = a token override set, not a new design system.
 // 治理：新 theme 的每個色都要過 scripts/check-theme-contrast.mjs 再登記 docs/design-system.md。
@@ -129,9 +129,10 @@ export async function recommendThemes({ destination, brief = {}, language, llm }
       })
       const seen = new Set()
       for (const p of out?.picks ?? []) {
+        const normalized = normalizeLanguageOutput(p, normalLanguage)
         let languageOk = true
-        try { assertLanguageOutput(p, normalLanguage) } catch { languageOk = false }
-        if (THEMES[p.name] && !seen.has(p.name) && languageOk) { seen.add(p.name); picked.push(decorate(p.name, p.why)) }
+        try { assertLanguageOutput(normalized, normalLanguage) } catch { languageOk = false }
+        if (THEMES[normalized.name] && !seen.has(normalized.name) && languageOk) { seen.add(normalized.name); picked.push(decorate(normalized.name, normalized.why)) }
       }
     } catch { picked = [] }
   }

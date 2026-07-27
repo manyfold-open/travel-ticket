@@ -1,7 +1,7 @@
 import { runMfJson } from '../mf-client.mjs'
 import { MODEL, mfCallOptions, parseStructured } from './runtime.mjs'
 import { BRIEF_SCHEMA, COMPOSER_SCHEMA, DISCOVERY_SCHEMA } from './schemas.mjs'
-import { languagePromptInstructions, normalizeLanguage, assertLanguageOutput } from '../language.mjs'
+import { languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput, assertLanguageOutput } from '../language.mjs'
 
 export const BRIEF_SYSTEM = 'You are the Trip Brief Agent in a travel-planning pipeline. Turn a one-sentence trip request into a structured brief. Interpret conservatively; record every assumption (dates, pace, traveller count) in notes. Dates must be in the future relative to today.'
 
@@ -19,8 +19,8 @@ export async function runTripBriefAgent(ctx, sentence, todayIso, language = 'en-
     })
     return parseStructured(response)
   }
-  try { const out = await call(); return { ...assertLanguageOutput(out, normalLanguage), language: normalLanguage } } catch (error) {
-    const out = await call(true)
+  try { const out = normalizeLanguageOutput(await call(), normalLanguage); return { ...assertLanguageOutput(out, normalLanguage), language: normalLanguage } } catch (error) {
+    const out = normalizeLanguageOutput(await call(true), normalLanguage)
     return { ...assertLanguageOutput(out, normalLanguage), language: normalLanguage }
   }
 }
@@ -44,8 +44,8 @@ export async function runLocalDiscoveryAgent(ctx, brief) {
     })
     return parseStructured(await stream.finalMessage())
   }
-  try { const out = await call(); return assertLanguageOutput(out, language) } catch (error) {
-    const out = await call(true)
+  try { const out = normalizeLanguageOutput(await call(), language); return assertLanguageOutput(out, language) } catch (error) {
+    const out = normalizeLanguageOutput(await call(true), language)
     return assertLanguageOutput(out, language)
   }
 }
@@ -88,8 +88,8 @@ export async function runComposerAgent(ctx, { sentence, brief, timezone, discove
     })
     return parseStructured(await stream.finalMessage())
   }
-  try { const out = await call(); return assertLanguageOutput(out, language) } catch (error) {
-    const out = await call(true)
+  try { const out = normalizeLanguageOutput(await call(), language); return assertLanguageOutput(out, language) } catch (error) {
+    const out = normalizeLanguageOutput(await call(true), language)
     return assertLanguageOutput(out, language)
   }
 }

@@ -6,7 +6,7 @@
 // import) so this function runs unchanged in a Cloudflare Worker.
 import { checkTokens, validateOverrides } from './contrast.mjs'
 import { DEFAULT_TOKENS } from './themes.mjs'
-import { assertLanguageOutput, languagePromptInstructions, normalizeLanguage } from './language.mjs'
+import { assertLanguageOutput, languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput } from './language.mjs'
 
 export const CUSTOM_ALLOWED_KEYS = ['rail', 'rail-deep', 'rail-press', 'stamp', 'night', 'gold', 'green', 'blue', 'board', 'board-hi', 'board-lo', 'board-edge']
 
@@ -44,6 +44,7 @@ export async function generateCustomTheme({ destination, style, language, llm, p
   }
   if (!out || typeof out !== 'object') return { ok: false, reason: 'theme generation returned no result', failures: [] }
   if (!isUsableTokens(out.tokens)) return { ok: false, reason: 'theme generation returned no usable tokens', failures: [] }
+  out = normalizeLanguageOutput(out, normalLanguage)
   let check = gate(out.tokens)
   if (check.pass) {
     try { assertLanguageOutput({ name: out.name, motifs: out.motifs, rationale: out.rationale }, normalLanguage) } catch { return { ok: false, reason: 'theme copy failed language validation', failures: [] } }
@@ -57,6 +58,7 @@ export async function generateCustomTheme({ destination, style, language, llm, p
   }
   if (!out || typeof out !== 'object') return { ok: false, reason: 'theme repair returned no result', failures: check.failures }
   if (!isUsableTokens(out.tokens)) return { ok: false, reason: 'theme generation returned no usable tokens', failures: check.failures }
+  out = normalizeLanguageOutput(out, normalLanguage)
   check = gate(out.tokens)
   if (check.pass) {
     try { assertLanguageOutput({ name: out.name, motifs: out.motifs, rationale: out.rationale }, normalLanguage) } catch { return { ok: false, reason: 'theme repair copy failed language validation', failures: [] } }

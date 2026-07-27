@@ -5,7 +5,7 @@
 import { buildPwaAssetFiles, pwaNames } from './pwa.mjs'
 import { THEMES, themeCss } from './themes.mjs'
 import { assertBritishEnglish } from './english.mjs'
-import { assertLanguageOutput, locale, normalizeLanguage } from './language.mjs'
+import { assertLanguageOutput, locale, normalizeLanguage, normalizeLanguageOutput } from './language.mjs'
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
@@ -1249,6 +1249,7 @@ const barcodeStyle = (seed) => {
 // Async because PWA icon generation deflates PNG data via CompressionStream.
 export async function buildItineraryFiles(itinerary, { customTokens, customMotifs, hasPoster }) {
   const language = normalizeLanguage(itinerary.language)
+  itinerary = normalizeLanguageOutput(itinerary, language)
   if (language === 'zh-CN') assertLanguageOutput(itinerary, language)
   else assertBritishEnglish(itinerary)
   itinerary.language = language
@@ -1516,7 +1517,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
       { tz: 'UTC', label: 'UTC', sub: copy.bookingAnchor, code: 'UTC' },
       { tz: htz, label: copy.bodyClock, sub: copy.feels, code: tzShortCode(htz, start, language) },
     ]
-    return `<div class="world-clock" aria-label="World clock rail board">${cards.map((card) => `
+    return `<div class="world-clock" aria-label="${esc(copy.worldClock)}">${cards.map((card) => `
     <div class="clock-card" data-clock-card>
       <span class="clock-label">${esc(card.label)}</span>
       <span class="clock-sub">${esc(card.sub)}</span>
@@ -1546,7 +1547,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
     const from = originForDay(day)
     const previous = days[index - 1]
     const next = days[index + 1]
-    return page(`${day.title} ticket`, `
+    return page(`${day.title} ${copy.ticket}`, `
 <section class="ticket day-ticket" data-prev="${previous ? pageSlug(previous) : 'index.html'}"${next ? ` data-next="${pageSlug(next)}"` : ''}>
   <div class="ticket-grid">
     <div class="main">

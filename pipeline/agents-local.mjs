@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { mergedTokens } from './themes.mjs'
-import { languagePromptInstructions, normalizeLanguage, assertLanguageOutput } from './language.mjs'
+import { languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput, assertLanguageOutput } from './language.mjs'
 import {
   createContext,
   BRIEF_SYSTEM, BRIEF_SCHEMA,
@@ -105,7 +105,7 @@ export async function runTripBriefAgent(ctx, sentence, todayIso, language = 'en-
   if (ctx.backend === 'cli') {
     const normalLanguage = normalizeLanguage(language)
     const prompt = `Today is ${todayIso}. Requested output language: ${normalLanguage}. Trip request: ${sentence}`
-    const out = await runCliJson({ system: `${BRIEF_SYSTEM}\n${languagePromptInstructions(normalLanguage)}`, prompt, schema: BRIEF_SCHEMA })
+    const out = normalizeLanguageOutput(await runCliJson({ system: `${BRIEF_SYSTEM}\n${languagePromptInstructions(normalLanguage)}`, prompt, schema: BRIEF_SCHEMA }), normalLanguage)
     return { ...assertLanguageOutput(out, normalLanguage), language: normalLanguage }
   }
   return runTripBriefAgentCore(ctx, sentence, todayIso, language)
@@ -115,7 +115,7 @@ export async function runLocalDiscoveryAgent(ctx, brief) {
   if (ctx.backend === 'cli') {
     const language = normalizeLanguage(brief?.language)
     const prompt = `Requested output language: ${language}\nTrip brief:\n${JSON.stringify(brief, null, 2)}`
-    const out = await runCliJson({ system: `${DISCOVERY_SYSTEM}\n${languagePromptInstructions(language)}`, prompt, schema: DISCOVERY_SCHEMA, webSearch: true })
+    const out = normalizeLanguageOutput(await runCliJson({ system: `${DISCOVERY_SYSTEM}\n${languagePromptInstructions(language)}`, prompt, schema: DISCOVERY_SCHEMA, webSearch: true }), language)
     return assertLanguageOutput(out, language)
   }
   return runLocalDiscoveryAgentCore(ctx, brief)
@@ -133,7 +133,7 @@ export async function runComposerAgent(ctx, args) {
       `Calendar (fixed events): ${JSON.stringify(calendar)}`,
     ].join('\n\n')
     const language = normalizeLanguage(args.language ?? brief?.language)
-    const out = await runCliJson({ system: `${COMPOSER_SYSTEM}\n${languagePromptInstructions(language)}\nRequested output language: ${language}`, prompt, schema: COMPOSER_SCHEMA })
+    const out = normalizeLanguageOutput(await runCliJson({ system: `${COMPOSER_SYSTEM}\n${languagePromptInstructions(language)}\nRequested output language: ${language}`, prompt, schema: COMPOSER_SCHEMA }), language)
     return assertLanguageOutput(out, language)
   }
   return runComposerAgentCore(ctx, args)

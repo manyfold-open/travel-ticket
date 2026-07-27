@@ -1,5 +1,8 @@
 // Portable language contract shared by the Worker, local Studio and renderer.
-// Keep this module dependency-free: it is bundled into Cloudflare Workers.
+// OpenCC is a pure ESM implementation with bundled dictionaries, so this
+// module remains compatible with the Cloudflare Worker bundle.
+import OpenCC from 'opencc-js/t2cn'
+
 export const SUPPORTED_LANGUAGES = ['en-GB', 'zh-CN']
 export const DEFAULT_LANGUAGE = 'en-GB'
 
@@ -30,25 +33,34 @@ export function languageLabel(value) {
   return normalizeLanguage(value) === 'zh-CN' ? '简体中文' : 'English'
 }
 
-// This is deliberately a validator, not a lossy converter. LLM output that
-// contains known Traditional forms is rejected so callers can retry or use a
-// deterministic Simplified Chinese fallback.
-const TRADITIONAL_CHARS = new Set([...(
-  '繁體國臺灣與這個來後發現說話時間間開關門問題為會學習實現應該對於從過還點選擇' +
-  '網頁資訊號碼訂閱館區樂園廣機鐵道醫院腦雲' +
-  '假設預訂確認聯絡連接帳號狀態錯誤無法進開始首頁跳過繼續'
-)])
+const toSimplified = OpenCC.Converter({ from: 't', to: 'cn' })
 const CJK_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u
 
+function isProtectedPath(path) {
+  return path[0] === 'request'
+    || path[0] === 'sources'
+    || path.includes('sources')
+    || path.at(-1) === 'url'
+    || path.at(-1) === 'source'
+    || path.at(-1) === 'source_label'
+}
+
+function mapChinese(value, path = []) {
+  if (isProtectedPath(path)) return value
+  if (typeof value === 'string') return toSimplified(value)
+  if (Array.isArray(value)) return value.map((child, index) => mapChinese(child, [...path, index]))
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, mapChinese(child, [...path, key])]))
+}
+
+export function normalizeLanguageOutput(value, language) {
+  return normalizeLanguage(language) === 'zh-CN' ? mapChinese(value) : value
+}
+
 function visit(value, path, matches) {
-  if (path[0] === 'request' || path.at(-1) === 'url' || path[0] === 'sources' || path.includes('sources')) return
+  if (isProtectedPath(path)) return
   if (typeof value === 'string') {
-    for (const char of value) {
-      if (TRADITIONAL_CHARS.has(char)) {
-        matches.push(path.join('.') || '<root>')
-        return
-      }
-    }
+    if (toSimplified(value) !== value) matches.push(path.join('.') || '<root>')
     return
   }
   if (!value || typeof value !== 'object') return
@@ -72,7 +84,7 @@ export function assertSimplifiedChinese(value) {
 export function assertEnglishOnly(value) {
   const matches = []
   const visitEnglish = (child, path) => {
-    if (path[0] === 'request' || path.at(-1) === 'url' || path[0] === 'sources' || path.includes('sources')) return
+    if (isProtectedPath(path)) return
     if (typeof child === 'string') {
       if (CJK_RE.test(child)) matches.push(path.join('.') || '<root>')
       return

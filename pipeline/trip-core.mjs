@@ -7,7 +7,7 @@ import { localToUtc } from './timezone.mjs'
 import { validateOverrides } from './contrast.mjs'
 import { CUSTOM_ALLOWED_KEYS } from './customTheme.mjs'
 import { agentBudgetMs } from './agent-budgets.mjs'
-import { locale, normalizeLanguage } from './language.mjs'
+import { locale, normalizeLanguage, normalizeLanguageOutput } from './language.mjs'
 
 // 票夾：每份 trip 的資料夾名 = slug + trip id 短碼（同 slug 不同 run 不互撞）。
 export const tripDirName = (itin) => `${itin.slug || 'trip'}-${String(itin.trip_id || '').split('_').at(-1).slice(0, 4)}`
@@ -158,7 +158,7 @@ export function localCompose(brief, discovery) {
     })
   }
 
-  return {
+  return normalizeLanguageOutput({
     summary: copy.fallbackSummary(brief.destination, totalDays, brief.pace, brief.notes),
     warnings: [
       copy.fallbackWarning,
@@ -178,7 +178,7 @@ export function localCompose(brief, discovery) {
       title_accent: language === 'zh-CN' ? '行程' : 'Itinerary',
       eyebrow: language === 'zh-CN' ? '旅行车票 · UTC 预览' : 'Ticket stack · UTC-first preview',
     },
-  }
+  }, language)
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ export function assembleItinerary({ tripId, sentence, brief, timezone, discovery
     })),
   }))
 
-  const itinerary = {
+  const itinerary = normalizeLanguageOutput({
     artifact_type: 'final_itinerary',
     trip_id: tripId,
     status: agentStatuses.every((s) => s.status === 'completed') ? 'complete' : 'partial',
@@ -240,7 +240,7 @@ export function assembleItinerary({ tripId, sentence, brief, timezone, discovery
       ...(posterResult?.prompt ? { poster_prompt: posterResult.prompt } : {}),
     },
     context: { bookings: contextResult?.bookings ?? [], calendar_events: calendarResult?.events ?? [], travel_notes: notionResult?.travel_notes ?? [] },
-  }
+  }, normalLanguage)
 
   itinerary.timeline_json = {
     timezones: [
