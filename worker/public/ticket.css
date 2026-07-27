@@ -1,6 +1,6 @@
 /* Design system: docs/design-system.md. Shared train-ticket shell for the
    home, connector, and progress pages. */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&family=Noto+Sans:wght@400;500;700;900&display=swap');
 :root {
   color-scheme: light;
   --ink: #171713;
@@ -26,8 +26,8 @@
   --stack-edge: #d1c0a0;
   --signal-ok: #7fbf6a;
   --font-display: "Archivo", sans-serif;
-  --font-body: "Noto Sans TC", "Archivo", sans-serif;
-  --font-mono: "IBM Plex Mono", "Noto Sans TC", ui-monospace, monospace;
+  --font-body: "Noto Sans", "Archivo", sans-serif;
+  --font-mono: "IBM Plex Mono", "Noto Sans", ui-monospace, monospace;
   --shadow: 0 24px 70px rgba(34,28,19,.18);
 }
 * { box-sizing: border-box; }
@@ -36,7 +36,7 @@ a, button { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Noto Sans TC", "Archivo", sans-serif;
+  font-family: "Noto Sans", "Archivo", sans-serif;
   background: linear-gradient(135deg,var(--desk),var(--paper) 45%,var(--desk-shade));
 }
 body::before {
@@ -45,6 +45,11 @@ body::before {
   background-image: repeating-linear-gradient(135deg,rgba(23,23,19,.05) 0 1px,transparent 1px 18px);
 }
 .page { position: relative; z-index: 1; min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 28px; }
+.language-switcher { position: absolute; z-index: 3; top: clamp(12px, 2.5vw, 28px); right: clamp(12px, 3vw, 36px); display: inline-flex; align-items: center; gap: 2px; padding: 3px; color: var(--paper-dim); background: rgba(41,42,37,.88); border: 1px solid rgba(255,248,234,.24); font: 900 11px/1 "Archivo", sans-serif; letter-spacing: .06em; }
+.language-switcher button { min-width: 42px; min-height: 32px; padding: 7px 8px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.language-switcher button[aria-pressed="true"] { color: var(--ink); background: var(--gold); }
+.language-switcher button:focus-visible { outline: 3px solid var(--gold); outline-offset: 1px; }
+.language-divider { opacity: .55; user-select: none; }
 .ticket-stack { width: min(1080px, 100%); position: relative; }
 .ticket-stack::before, .ticket-stack::after {
   content: ""; position: absolute; inset: 16px -10px -16px 10px;
@@ -80,7 +85,8 @@ body::before {
 .eyebrow { font-size: 12px; color: var(--gold); }
 a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .stub a:focus-visible, .stub button:focus-visible { outline-color: var(--rail); }
-h1 { font-family: "Archivo","Noto Sans TC",sans-serif; font-size: clamp(36px, 6vw, 72px); line-height: .98; margin: 14px 0 12px; text-wrap: balance; }
+h1 { font-family: "Archivo","Noto Sans",sans-serif; font-size: clamp(36px, 6vw, 72px); line-height: .98; margin: 14px 0 12px; text-wrap: balance; }
+h1 .home-title-top { color: var(--paper-bright); }
 h1 span { color: var(--gold); }
 .hint { font-size: 15px; line-height: 1.85; color: var(--paper-dim); max-width: 46ch; text-wrap: pretty; }
 textarea {
@@ -134,6 +140,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   color: var(--gold); border: 1px dashed rgba(243,201,95,.5); background: rgba(243,201,95,.06);
 }
 @media (max-width: 900px) {
+  .language-switcher { top: 10px; right: 10px; }
   .ticket-grid { grid-template-columns: 1fr; }
   .stub { border-left: 0; border-top: 1px dashed var(--line-strong); }
   .stub::before, .stub::after { display: none; }

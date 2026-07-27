@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trip Ticket</title>
-<meta name="description" content="一句話出一疊車票：貼上旅程描述，multi-agent pipeline 排出逐日行程，印成車票風格的旅遊手冊。">
+<meta name="description" content="Turn one sentence into a multi-agent travel itinerary, printed as an interactive railway-ticket handbook." id="page-description">
 <meta name="theme-color" content="#efe0c3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,30 +12,33 @@
 </head>
 <body>
 <main class="page">
+  <div class="language-switcher" role="group" aria-label="Language">
+    <button type="button" data-language="en-GB" aria-pressed="true">EN</button><span class="language-divider" aria-hidden="true">|</span><button type="button" data-language="zh-CN" aria-pressed="false">简中</button>
+  </div>
   <div class="ticket-stack">
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
-          <div class="eyebrow">Trip Ticket · Multi-Agent Pipeline</div>
-          <h1>一句話<br><span>出一疊車票</span></h1>
-          <p class="hint">把想去的旅程用一句話描述——目的地、大概日期、幾個人、步調偏好——剩下交給 agents：解析需求、查時差、上網做在地功課、排成逐日行程，最後印成車票風格的手冊。</p>
-          <label for="sentence" class="sr-only">用一句話描述你的旅程</label>
-          <textarea id="sentence" name="sentence" placeholder="例：十月中帶另一半從台北去京都四天，賞楓吃和食，步調放鬆不趕行程，搭大眾運輸"></textarea>
-          <p class="notice" id="config-notice" hidden>服務尚未完成設定，出票功能暫時不可用——請稍後再試。</p>
+          <div class="eyebrow" id="home-eyebrow">Trip Ticket · Multi-Agent Pipeline</div>
+          <h1><span id="home-title-top" class="home-title-top">One sentence</span><br><span id="home-title-accent">One ticket stack</span></h1>
+          <p class="hint" id="home-hint">Describe your trip in one sentence: destination, dates, travellers and preferred pace. The agents handle the time zones, local research and day-by-day plan, then print it as a ticket-style handbook.</p>
+          <label for="sentence" class="sr-only" id="sentence-label">Describe your trip in one sentence</label>
+          <textarea id="sentence" name="sentence" placeholder="Example: Plan a relaxed four-day trip from London to Kyoto in mid-October, with autumn colours, good food and public transport."></textarea>
+          <p class="notice" id="config-notice" hidden>The service is not fully configured yet, so ticket printing is unavailable. Please try again later.</p>
           <div class="controls">
-            <button type="button" class="cta" id="punch" disabled>出票 · Punch It</button>
+            <button type="button" class="cta" id="punch" disabled>Print ticket · Punch it</button>
           </div>
           <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
           <p class="hint" id="error" style="color:var(--gold)" role="alert"></p>
         </div>
         <aside class="stub">
-          <div class="stub-title label">Boarding Info</div>
+          <div class="stub-title label" id="boarding-title">Boarding Info</div>
           <ol class="terms">
-            <li>Trip Brief Agent 先把你的句子變成結構化需求；Timezone / Local Discovery（帶網路搜尋）並行做功課；Composer 合成逐日行程；渲染器印出封面與每日票券。</li>
-            <li>真實模式全程約 5–8 分鐘（網路搜尋佔大半）。過程中每個 agent 的狀態都會誠實記錄在手冊裡。</li>
-            <li>下一步可以選擇連結 Gmail / Calendar / Notion 讓行程更貼近你既有的訂位與行事曆，或直接跳過。</li>
+            <li id="boarding-term-1">Trip Brief turns your sentence into a structured request; Timezone and Local Discovery work in parallel; Composer builds the itinerary; the renderer prints the cover and daily tickets.</li>
+            <li id="boarding-term-2">A live run usually takes 5–8 minutes, with web research taking most of the time. Each agent status is recorded honestly in the handbook.</li>
+            <li id="boarding-term-3">Next, you can connect Gmail, Calendar or Notion to use existing bookings and plans, or skip that step.</li>
           </ol>
-          <div><span class="stamp">Punch to begin</span></div>
+          <div><span class="stamp" id="home-stamp">Punch to begin</span></div>
         </aside>
       </div>
     </section>
@@ -43,6 +46,57 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id)
+const HOME_COPY = {
+  'en-GB': {
+    title: 'Trip Ticket', description: 'Turn one sentence into a multi-agent travel itinerary, printed as an interactive railway-ticket handbook.',
+    eyebrow: 'Trip Ticket · Multi-Agent Pipeline', titleTop: 'One sentence', titleAccent: 'One ticket stack',
+    hint: 'Describe your trip in one sentence: destination, dates, travellers and preferred pace. The agents handle the time zones, local research and day-by-day plan, then print it as a ticket-style handbook.',
+    label: 'Describe your trip in one sentence', placeholder: 'Example: Plan a relaxed four-day trip from London to Kyoto in mid-October, with autumn colours, good food and public transport.',
+    config: 'The service is not fully configured yet, so ticket printing is unavailable. Please try again later.',
+    print: 'Print ticket · Punch it', printing: 'Printing · Punching...', boarding: 'Boarding Info',
+    terms: [
+      'Trip Brief turns your sentence into a structured request; Timezone and Local Discovery work in parallel; Composer builds the itinerary; the renderer prints the cover and daily tickets.',
+      'A live run usually takes 5–8 minutes, with web research taking most of the time. Each agent status is recorded honestly in the handbook.',
+      'Next, you can connect Gmail, Calendar or Notion to use existing bookings and plans, or skip that step.',
+    ],
+    stamp: 'Punch to begin', empty: 'Describe your trip before printing.', server: 'Could not reach the server. Check your connection and try again.', retry: 'Please try again.',
+  },
+  'zh-CN': {
+    title: '旅行票据', description: '用一句话生成多智能体旅行行程，并将它打印成互动式铁路车票手册。',
+    eyebrow: '旅行票据 · 多智能体行程规划', titleTop: '一句话', titleAccent: '一叠车票',
+    hint: '用一句话描述行程：目的地、日期、旅客和节奏偏好。智能体会处理时区、本地调研和每日计划，最后生成车票风格的旅行手册。',
+    label: '用一句话描述行程', placeholder: '例如：计划十月中旬从伦敦前往京都的四天轻松行程，想看秋色、品尝美食并使用公共交通。',
+    config: '服务尚未完全配置，暂时无法生成车票。请稍后再试。',
+    print: '生成车票 · 开始', printing: '生成中 · 请稍候...', boarding: '登车信息',
+    terms: [
+      '旅行简报会把你的描述转换为结构化需求；时区和本地调研并行工作；行程编排器生成每日计划；渲染器输出封面和每日车票。',
+      '实时生成通常需要 5–8 分钟，其中大部分时间用于网络调研。每个智能体的状态都会如实记录在旅行手册中。',
+      '接下来可以连接 Gmail、Calendar 或 Notion，使用已有的预订和计划，也可以跳过。',
+    ],
+    stamp: '开始生成', empty: '请先描述行程，再生成车票。', server: '无法连接服务器，请检查网络后重试。', retry: '请修正问题后重试。',
+  },
+}
+let homeCopy = HOME_COPY['en-GB']
+
+function applyHomeLanguage(language) {
+  homeCopy = HOME_COPY[language] || HOME_COPY['en-GB']
+  document.title = homeCopy.title
+  $('page-description').content = homeCopy.description
+  $('home-eyebrow').textContent = homeCopy.eyebrow
+  $('home-title-top').textContent = homeCopy.titleTop
+  $('home-title-accent').textContent = homeCopy.titleAccent
+  $('home-hint').textContent = homeCopy.hint
+  $('sentence-label').textContent = homeCopy.label
+  $('sentence').setAttribute('aria-label', homeCopy.label)
+  $('sentence').placeholder = homeCopy.placeholder
+  $('config-notice').textContent = homeCopy.config
+  $('punch').textContent = homeCopy.print
+  $('boarding-title').textContent = homeCopy.boarding
+  homeCopy.terms.forEach((term, index) => $(`boarding-term-${index + 1}`).textContent = term)
+  $('home-stamp').textContent = homeCopy.stamp
+}
+
+document.addEventListener('trip-ticket-language-change', (event) => applyHomeLanguage(event.detail.language))
 
 async function checkReadiness() {
   let config
@@ -63,32 +117,33 @@ checkReadiness()
 $('punch').addEventListener('click', async () => {
   const sentence = $('sentence').value.trim()
   $('error').textContent = ''
-  if (!sentence) { $('sentence').focus(); return }
+  if (!sentence) { $('error').textContent = homeCopy.empty; $('sentence').focus(); return }
   $('punch').setAttribute('aria-disabled', 'true')
-  $('punch').textContent = '出票中 · Punching...'
+  $('punch').textContent = homeCopy.printing
   let res
   try {
     res = await fetch('/api/trips', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence }),
+      body: JSON.stringify({ sentence, language: TripTicketLanguage.read() }),
     })
   } catch {
-    $('error').textContent = '連不到伺服器，請確認網路連線後再試一次。'
+    $('error').textContent = homeCopy.server
     $('punch').removeAttribute('aria-disabled')
-    $('punch').textContent = '出票 · Punch It'
+    $('punch').textContent = homeCopy.print
     return
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    $('error').textContent = body.error || `伺服器回了 ${res.status}，請再試一次。`
+    $('error').textContent = body.error || `${homeCopy.retry} (${res.status})`
     $('punch').removeAttribute('aria-disabled')
-    $('punch').textContent = '出票 · Punch It'
+    $('punch').textContent = homeCopy.print
     return
   }
   const body = await res.json()
-  location.href = body.links?.connect || `/trips/${encodeURIComponent(body.trip_id)}/connect`
+  location.href = TripTicketLanguage.carry(body.links?.connect || `/trips/${encodeURIComponent(body.trip_id)}/connect`)
 })
 </script>
+<script src="/language.js"></script>
 </body>
 </html>

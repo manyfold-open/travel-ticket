@@ -4,6 +4,7 @@
 import { jsonResponse } from '../http.mjs'
 import { tripLinks } from '../trip-links.mjs'
 import { resolveVisitorSession, withVisitorSession } from '../visitor-session.mjs'
+import { normalizeLanguage } from '../../pipeline/language.mjs'
 
 const MAX_SENTENCE_LENGTH = 500
 const DESIGN_PRESET_NAME_RE = /^[a-z0-9_-]{1,64}$/
@@ -50,7 +51,7 @@ export async function handleCreateTrip(request, env) {
     return jsonResponse({ error: 'invalid JSON body' }, 400)
   }
 
-  const { sentence, visitor_id: legacyVisitorId, design } = body ?? {}
+  const { sentence, visitor_id: legacyVisitorId, design, language } = body ?? {}
 
   if (typeof sentence !== 'string' || sentence.trim().length === 0 || sentence.length > MAX_SENTENCE_LENGTH) {
     return jsonResponse({ error: `sentence must be a non-empty string up to ${MAX_SENTENCE_LENGTH} characters` }, 400)
@@ -71,6 +72,7 @@ export async function handleCreateTrip(request, env) {
     sentence: sentence.trim(),
     todayIso,
     visitorId: visitor.visitorId,
+    language: normalizeLanguage(language),
     design: designResult.design,
   })
 

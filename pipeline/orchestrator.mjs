@@ -35,6 +35,7 @@ const sentence = args.filter((a) => !a.startsWith('--')).join(' ').trim()
 const mock = flags.has('--mock')
 const skipRender = flags.has('--no-render')
 const backendFlag = args.find((a) => a.startsWith('--backend='))?.split('=')[1]
+const languageFlag = args.find((a) => a.startsWith('--language=') || a.startsWith('--lang='))?.split('=').slice(1).join('=')
 const renderOnly = flags.has('--render-only')
 
 // 票夾清理：--prune[=N] 保留最新 N 份（預設 10），較舊的 data/trips json 與
@@ -72,7 +73,7 @@ if (renderOnly) {
       ? `${tripFlag}.json`
       : tripFiles.find((f) => f.startsWith(tripFlag) && f.endsWith('.json'))
     if (!match) {
-      console.error(`[orchestrator] no trip matching "${tripFlag}" in data/trips/${tripFiles.length ? '' : ' (資料夾不存在或是空的——先跑一次出票或 --render-only)'}`)
+      console.error(`[orchestrator] no trip matching "${tripFlag}" in data/trips/${tripFiles.length ? '' : ' (directory is missing or empty - run a trip first or use --render-only)'}`)
       process.exit(1)
     }
     const itinerary = JSON.parse(fs.readFileSync(path.join(tripsDataDir, match), 'utf8'))
@@ -86,7 +87,7 @@ if (renderOnly) {
   }
   const latestPath = path.join(packageRoot, 'data', 'final_itinerary.json')
   if (!fs.existsSync(latestPath)) {
-    console.error('[orchestrator] data/final_itinerary.json 不存在——先跑一次出票才有東西可重印')
+    console.error('[orchestrator] data/final_itinerary.json is missing - run a trip first before rendering')
     process.exit(1)
   }
   const itinerary = JSON.parse(fs.readFileSync(latestPath, 'utf8'))
@@ -102,7 +103,7 @@ if (renderOnly) {
 }
 
 if (!sentence && !mock) {
-  console.error('Usage: node pipeline/orchestrator.mjs "一句話描述你的旅程" [--mock] [--no-render]')
+  console.error('Usage: node pipeline/orchestrator.mjs "describe your trip in one sentence" [--mock] [--no-render]')
   process.exit(1)
 }
 
@@ -112,7 +113,7 @@ const log = (msg) => console.error(`[orchestrator] ${msg}`)
 // Main
 
 async function main() {
-  const { plan, designOptions } = await planTrip(sentence, { mock, backend: backendFlag, log })
+  const { plan, designOptions } = await planTrip(sentence, { mock, backend: backendFlag, language: languageFlag, log })
 
   // Flag PRESENCE (not truthiness) decides the branch: a bare `--design=` must
   // resolve via parseDesignChoice's fallback, never fall through to the menu.
@@ -122,14 +123,14 @@ async function main() {
   if (designArg !== undefined) {
     choice = parseDesignChoice(designFlag, designOptions)
   } else if (process.stdin.isTTY && !mock) {
-    console.error('\n這趟旅程,你想要哪種票面設計?')
+    console.error('\nWhich ticket design would you like for this trip?')
     designOptions.presets.forEach((p, i) => console.error(`  ${i + 1}. ${p.label} —— ${p.why}`))
     console.error(`  ${designOptions.presets.length + 1}. ${designOptions.custom.label} —— ${designOptions.custom.hint}`)
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
-    const ans = (await rl.question(`選 1-${designOptions.presets.length + 1} (預設 1): `)).trim()
+    const ans = (await rl.question(`Choose 1-${designOptions.presets.length + 1} (default 1): `)).trim()
     const n = Number(ans)
     if (n === designOptions.presets.length + 1) {
-      const style = (await rl.question('一句話描述你要的風格: ')).trim()
+      const style = (await rl.question('Describe the look in one sentence: ')).trim()
       choice = style ? { kind: 'custom', style } : parseDesignChoice(undefined, designOptions)
     } else {
       choice = { kind: 'preset', name: designOptions.presets[Math.min(Math.max(n || 1, 1), designOptions.presets.length) - 1].name }

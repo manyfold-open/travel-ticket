@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&family=Noto+Sans:wght@400;500;700;900&display=swap');
 
 :root {
   color-scheme: light;
@@ -15,9 +15,9 @@
   --night: #292a25;
   --desk: #efe0c3;
   --desk-shade: #ddd8c8;
-  --font-display: "Archivo", "Noto Sans TC", sans-serif;
-  --font-body: "Noto Sans TC", "Archivo", sans-serif;
-  --font-mono: "IBM Plex Mono", "Noto Sans TC", ui-monospace, monospace;
+  --font-display: "Archivo", "Noto Sans", sans-serif;
+  --font-body: "Noto Sans", "Archivo", sans-serif;
+  --font-mono: "IBM Plex Mono", "Noto Sans", ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -49,6 +49,11 @@ body::before {
   padding: 28px;
   place-items: center;
 }
+.language-switcher { position: absolute; z-index: 3; top: clamp(12px, 2.5vw, 28px); right: clamp(12px, 3vw, 36px); display: inline-flex; gap: 2px; padding: 3px; background: rgba(41,42,37,.88); border: 1px solid rgba(255,248,234,.24); color: var(--paper-dim); font: 900 11px/1 "Archivo", sans-serif; }
+.language-switcher button { min-width: 42px; min-height: 32px; padding: 7px 8px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.language-switcher button[aria-pressed="true"] { color: var(--ink); background: var(--gold); }
+.language-switcher button:focus-visible { outline: 3px solid var(--gold); outline-offset: 1px; }
+.language-divider { opacity: .55; user-select: none; }
 
 .ticket-stack {
   position: relative;

@@ -187,7 +187,7 @@ function iconSvg() {
 }
 
 // --- manifest --------------------------------------------------------------
-function manifestJson({ name, short, description }) {
+function manifestJson({ name, short, description, language = 'en-GB' }) {
   return JSON.stringify({
     id: './',
     name,
@@ -197,7 +197,7 @@ function manifestJson({ name, short, description }) {
     scope: './',
     display: 'standalone',
     orientation: 'portrait-primary',
-    lang: 'zh-Hant',
+    lang: language,
     dir: 'ltr',
     theme_color: THEME,
     background_color: THEME,
@@ -277,10 +277,10 @@ self.addEventListener('fetch', (e) => {
 // --- public API ------------------------------------------------------------
 // Names for the manifest, derived from the itinerary in render.mjs and passed
 // in so we don't re-derive cover fields here.
-export function pwaNames(itinerary, { destinationTop, destinationAccent }) {
+export function pwaNames(itinerary, { destinationTop, destinationAccent, language = 'en-GB' }) {
   const top = (destinationTop || itinerary.destination || 'Trip').trim()
   const accent = (destinationAccent || '').trim()
-  const name = (accent && accent !== 'Itinerary' ? `${top} ${accent}` : top) || 'Trip Ticket'
+  const name = (accent && accent !== 'Itinerary' && accent !== '行程' ? `${top} ${accent}` : top) || (language === 'zh-CN' ? '旅行票据' : 'Trip Ticket')
   const short = (top.split(/[\s·,，:：]/)[0] || 'Trip').slice(0, 12)
   return { name, short }
 }
@@ -288,13 +288,13 @@ export function pwaNames(itinerary, { destinationTop, destinationAccent }) {
 // Pure: no fs, no node: imports. Returns a Map of path (relative to the
 // trip's outDir) → content. Async because PNG icon encoding deflates via
 // CompressionStream.
-export async function buildPwaAssetFiles({ name, short, description }, pages, extraAssets = []) {
+export async function buildPwaAssetFiles({ name, short, description, language = 'en-GB' }, pages, extraAssets = []) {
   // extraAssets 空時 hash 輸入與舊版相同結構 → cacheId 只在清單真的變動時變。
   const hashInput = extraAssets.length ? [name, pages, extraAssets] : [name, pages]
   const cacheId = shortHash(JSON.stringify(hashInput))
   const [icon192, icon512] = await Promise.all([iconPng(192), iconPng(512)])
   return new Map([
-    ['manifest.webmanifest', manifestJson({ name, short, description })],
+    ['manifest.webmanifest', manifestJson({ name, short, description, language })],
     ['sw.js', serviceWorkerJs([...pages, ...extraAssets], cacheId)],
     ['icon.svg', iconSvg()],
     ['icon-192.png', icon192],

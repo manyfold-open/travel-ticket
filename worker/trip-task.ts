@@ -34,7 +34,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
   if (!params) throw new Error('trip job claim did not include params')
 
   if (taskId === 'brief') {
-    return runBriefStep(createMfContext(env, 'brief'), params.sentence, params.todayIso)
+    return runBriefStep(createMfContext(env, 'brief'), params.sentence, params.todayIso, params.language)
   }
 
   const briefRes = output<{ brief: unknown }>(claim, 'brief')
@@ -69,6 +69,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
         travel_notes: notionRes.notion?.travel_notes ?? [],
       },
       calendar: calendarRes.calendar,
+      language: params.language,
     })
   }
 
@@ -78,6 +79,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
       design: params.design,
       brief,
       promptTemplate: cityThemePrompt,
+      language: params.language,
     })
   }
 
@@ -110,6 +112,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
       themeName: themeRes.themeName,
       posterResult: null,
       agentStatuses: statuses,
+      language: params.language,
     })
     if (themeRes.themeUsed.custom) {
       Object.assign(itinerary, { custom_theme: {

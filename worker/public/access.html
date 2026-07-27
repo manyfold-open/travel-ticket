@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en-GB">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,12 +10,15 @@
 </head>
 <body>
   <main class="page">
+    <div class="language-switcher" role="group" aria-label="Language">
+      <button type="button" data-language="en-GB" aria-pressed="true">EN</button><span class="language-divider" aria-hidden="true">|</span><button type="button" data-language="zh-CN" aria-pressed="false">简中</button>
+    </div>
     <div class="ticket-stack">
       <section class="ticket" aria-labelledby="access-title">
         <div class="main">
           <p class="eyebrow">PRIVATE DEPARTURE / ACCESS REQUIRED</p>
-          <h1 id="access-title">輸入<br><span>6 位口令</span></h1>
-          <p class="lede">這個 Travel Ticket 工作區受到保護。輸入口令後即可建立、查看和管理行程。</p>
+          <h1 id="access-title">Enter<br><span>6-digit code</span></h1>
+          <p class="lede">This Travel Ticket workspace is protected. Enter the access code to create, view and manage itineraries.</p>
 
           <form id="access-form">
             <label for="passcode">6-digit access code</label>
@@ -23,7 +26,7 @@
               inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
               autocomplete="one-time-code" aria-describedby="access-message"
               required autofocus>
-            <button id="unlock" type="submit">驗票入站 · Open Travel Ticket</button>
+            <button id="unlock" type="submit">Open Travel Ticket</button>
             <p id="access-message" class="message" role="status" aria-live="polite"></p>
           </form>
         </div>
@@ -36,11 +39,12 @@
             <div><dt>Session</dt><dd>7 days</dd></div>
           </dl>
           <div class="stamp">Code required</div>
-          <p class="admin-note">管理員可以前往 <a href="/settings">Settings</a> 配置或更换访问口令。</p>
+          <p class="admin-note">Administrators can configure or change the access code in <a href="/settings">Settings</a>.</p>
         </aside>
       </section>
     </div>
   </main>
+  <script src="/language.js"></script>
   <script src="/access.js" defer></script>
 </body>
 </html>

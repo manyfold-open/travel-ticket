@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trip Ticket Studio</title>
-<meta name="description" content="一句話出一疊車票：貼上旅程描述，multi-agent pipeline 排出逐日行程，印成車票風格的旅遊手冊。">
+<meta name="description" content="Turn one sentence into a multi-agent travel itinerary, printed as an interactive railway-ticket handbook.">
 <meta name="theme-color" content="#efe0c3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>
 /* Hallmark · design-system: docs/design-system.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&family=Noto+Sans:wght@400;500;700;900&display=swap');
 :root {
   color-scheme: light;
   --ink: #171713;
@@ -36,8 +36,8 @@
   --stack-edge: #d1c0a0;
   --signal-ok: #7fbf6a;
   --font-display: "Archivo", sans-serif;
-  --font-body: "Noto Sans TC", "Archivo", sans-serif;
-  --font-mono: "IBM Plex Mono", "Noto Sans TC", ui-monospace, monospace;
+  --font-body: "Noto Sans", "Archivo", sans-serif;
+  --font-mono: "IBM Plex Mono", "Noto Sans", ui-monospace, monospace;
   --shadow: 0 24px 70px rgba(34,28,19,.18);
 }
 * { box-sizing: border-box; }
@@ -46,7 +46,7 @@ a, button { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Noto Sans TC", "Archivo", sans-serif;
+  font-family: "Noto Sans", "Archivo", sans-serif;
   background: linear-gradient(135deg,var(--desk),var(--paper) 45%,var(--desk-shade));
 }
 body::before {
@@ -58,6 +58,11 @@ body::before {
   background-image: repeating-linear-gradient(135deg,rgba(23,23,19,.05) 0 1px,transparent 1px 18px);
 }
 .page { position: relative; z-index: 1; min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 28px; }
+.language-switcher { position: absolute; z-index: 3; top: clamp(12px, 2.5vw, 28px); right: clamp(12px, 3vw, 36px); display: inline-flex; align-items: center; gap: 2px; padding: 3px; color: var(--paper-dim); background: rgba(41,42,37,.88); border: 1px solid rgba(255,248,234,.24); font: 900 11px/1 "Archivo", sans-serif; letter-spacing: .06em; }
+.language-switcher button { min-width: 42px; min-height: 32px; padding: 7px 8px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.language-switcher button[aria-pressed="true"] { color: var(--ink); background: var(--gold); }
+.language-switcher button:focus-visible { outline: 3px solid var(--gold); outline-offset: 1px; }
+.language-divider { opacity: .55; user-select: none; }
 .ticket-stack { width: min(1080px, 100%); position: relative; }
 .ticket-stack::before,
 .ticket-stack::after {
@@ -94,7 +99,7 @@ body::before {
 .eyebrow { font-size: 12px; color: var(--gold); }
 a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .stub a:focus-visible { outline-color: var(--rail); }
-h1 { font-family: "Archivo","Noto Sans TC",sans-serif; font-size: clamp(44px, 7vw, 88px); line-height: .96; margin: 14px 0 12px; text-wrap: balance; }
+h1 { font-family: "Archivo","Noto Sans",sans-serif; font-size: clamp(44px, 7vw, 88px); line-height: .96; margin: 14px 0 12px; text-wrap: balance; }
 h1 span { color: var(--gold); }
 .hint { font-size: 15px; line-height: 1.85; color: var(--paper-dim); max-width: 42ch; text-wrap: pretty; }
 textarea {
@@ -197,30 +202,33 @@ textarea:focus { outline: 3px solid var(--gold); }
 </head>
 <body>
 <main class="page">
+  <div class="language-switcher" role="group" aria-label="Language">
+    <button type="button" data-language="en-GB" aria-pressed="true">EN</button><span class="language-divider" aria-hidden="true">|</span><button type="button" data-language="zh-CN" aria-pressed="false">简中</button>
+  </div>
   <div class="ticket-stack">
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
           <div class="eyebrow">Trip Ticket Studio · Multi-Agent Pipeline</div>
-          <h1>一句話<br><span>出一疊車票</span></h1>
-          <p class="hint">把想去的旅程用一句話描述——目的地、大概日期、幾個人、步調偏好——剩下交給 agents：解析需求、查時差、上網做在地功課、排成逐日行程，最後印成車票風格的手冊。</p>
-          <div class="presets" role="group" aria-label="示範票根：撕一張把示範句填進輸入框，不會直接出票">
-            <div class="label" aria-hidden="true">Sample Stubs · 撕一張改成你的</div>
-            <button type="button" class="preset-stub" data-preset="weekend"><b>週末小旅</b><small>Weekend · 2 Days</small></button>
-            <button type="button" class="preset-stub" data-preset="multicity"><b>多城長途</b><small>Multi-City · 12 Days</small></button>
-            <button type="button" class="preset-stub" data-preset="daytrip"><b>一日遊</b><small>Day Trip · 1 Day</small></button>
+          <h1>One sentence<br><span>One ticket stack</span></h1>
+          <p class="hint">Describe your trip in one sentence: destination, dates, travellers and preferred pace. The agents handle the time zones, local research and day-by-day plan, then print it as a ticket-style handbook.</p>
+          <div class="presets" role="group" aria-label="Sample stubs: choose one to fill the input without printing">
+            <div class="label" aria-hidden="true">Sample Stubs · Choose a starting point</div>
+            <button type="button" class="preset-stub" data-preset="weekend"><b>Weekend escape</b><small>Weekend · 2 Days</small></button>
+            <button type="button" class="preset-stub" data-preset="multicity"><b>Multi-city rail</b><small>Multi-City · 12 Days</small></button>
+            <button type="button" class="preset-stub" data-preset="daytrip"><b>Day trip</b><small>Day Trip · 1 Day</small></button>
           </div>
-          <textarea id="sentence" name="sentence" aria-label="用一句話描述你的旅程" placeholder="例：十月中帶另一半從台北去京都四天，賞楓吃和食，步調放鬆不趕行程，搭大眾運輸"></textarea>
+          <textarea id="sentence" name="sentence" aria-label="Describe your trip in one sentence" placeholder="Example: Plan a relaxed four-day trip from London to Kyoto in mid-October, with autumn colours, good food and public transport."></textarea>
           <div class="controls">
-            <button class="cta" id="punch">出票 · Punch It</button>
-            <label class="mockbox"><input type="checkbox" id="mock"> 測試模式（不呼叫 LLM）</label>
+            <button class="cta" id="punch">Print ticket · Punch it</button>
+            <label class="mockbox"><input type="checkbox" id="mock"> Mock mode (no LLM calls)</label>
           </div>
           <div class="board" id="board">
             <div id="agents"></div>
             <div class="logbox" id="log"></div>
             <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
             <div class="done-row">
-              <a class="cta done-cta" id="viewtrip" href="/trip/">手冊完成 · 打開來看</a>
+              <a class="cta done-cta" id="viewtrip" href="/trip/">Handbook complete · Open it</a>
             </div>
           </div>
         </div>
@@ -228,9 +236,9 @@ textarea:focus { outline: 3px solid var(--gold); }
           <div class="stub-title label">Boarding Info</div>
           <div class="fineprint">
             <p><span class="stamp">How it works</span></p>
-            <p>Trip Brief Agent 先把你的句子變成結構化需求；Timezone / Local Discovery（帶網路搜尋）並行做功課；Composer 合成逐日行程；渲染器印出封面與每日票券。</p>
-            <p>真實模式全程約 5–8 分鐘（網路搜尋佔大半）。過程中每個 agent 的狀態都會誠實記錄在手冊裡。</p>
-            <p>Gmail / Calendar agent 尚未接上 connector，會標記為 skipped。</p>
+            <p>Trip Brief turns your sentence into a structured request; Timezone and Local Discovery work in parallel; Composer builds the itinerary; the renderer prints the cover and daily tickets.</p>
+            <p>A live run usually takes 5–8 minutes, with web research taking most of the time. Each agent status is recorded honestly in the handbook.</p>
+            <p>Gmail and Calendar connectors are optional and appear as skipped when unavailable.</p>
           </div>
           <div class="lasttrip" id="lasttrip"></div>
           <div class="barcode-block" aria-hidden="true"><div class="barcode"></div><div class="serial" translate="no">trip·ticket·studio</div></div>
@@ -245,6 +253,22 @@ const $ = (id) => document.getElementById(id)
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 let polling = null
 let lastAnnounced = ''
+const normaliseLanguage = (value) => value === 'zh-CN' ? 'zh-CN' : 'en-GB'
+const selectedLanguage = () => {
+  const query = new URLSearchParams(location.search).get('language')
+  if (query) return normaliseLanguage(query)
+  try { return normaliseLanguage(localStorage.getItem('trip-ticket-language')) } catch { return 'en-GB' }
+}
+let language = selectedLanguage()
+function setLanguage(next) {
+  language = normaliseLanguage(next)
+  try { localStorage.setItem('trip-ticket-language', language) } catch {}
+  document.documentElement.lang = language
+  document.querySelectorAll('[data-language]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.language === language)))
+  const url = new URL(location.href); url.searchParams.set('language', language); history.replaceState(null, '', url)
+}
+document.querySelectorAll('[data-language]').forEach((button) => button.addEventListener('click', () => setLanguage(button.dataset.language)))
+setLanguage(language)
 
 function announce(text) {
   if (text === lastAnnounced) return
@@ -311,7 +335,7 @@ async function poll() {
     pollFailures = 0
   } catch {
     pollFailures += 1
-    if (pollFailures === 3) logError('[warn] 連不上 local studio，繼續重試中——確認 npm run studio:local 還活著。')
+    if (pollFailures === 3) logError('[warn] Cannot reach the local Studio; retrying. Check that npm run studio:local is still running.')
     return
   }
   renderWallet(s.trip, s.trips)
@@ -334,19 +358,19 @@ async function poll() {
   }
   if (s.phase === 'running') {
     $('punch').disabled = true
-    $('punch').textContent = `Agents 工作中 · ${Math.round(s.elapsed_ms / 1000)}s`
+    $('punch').textContent = `Agents working · ${Math.round(s.elapsed_ms / 1000)}s`
     const doneCount = Object.values(s.agents).filter((v) => v !== 'running' && v !== 'pending').length
-    announce(`Agents 工作中，${doneCount} / ${AGENTS.length} 完成`)
+    announce(`Agents working: ${doneCount} / ${AGENTS.length} complete`)
   } else {
     $('punch').disabled = false
-    $('punch').textContent = '出票 · Punch It'
+    $('punch').textContent = 'Print ticket · Punch it'
     clearInterval(polling)
     polling = null
     if (s.phase === 'done') {
       $('viewtrip').classList.add('show')
-      if (phaseChanged) announce('手冊完成，可以打開來看')
+      if (phaseChanged) announce('Handbook complete. Ready to open.')
     }
-    if (s.phase === 'error' && phaseChanged) logError('[error] 出票失敗：' + (s.error || '原因不明，看 server log') + '——修正後再按一次「出票」。')
+    if (s.phase === 'error' && phaseChanged) logError('[error] Printing failed: ' + (s.error || 'Unknown error; check the server log.') + ' Try printing again after fixing it.')
   }
 }
 
@@ -357,9 +381,9 @@ function startPolling() {
 
 // Preset 示範票根：只填句子、不出票（出票永遠是使用者按「出票」才發生）。
 const PRESETS = {
-  weekend: '這個週末帶朋友從台北去台南兩天一夜，吃在地小吃逛老街，步調放鬆不排滿，高鐵來回',
-  multicity: '十月和另一半從台北飛歐洲十二天，想跑蘇黎世、琉森、米蘭三個城市，火車移動，重風景與市集，不趕行程',
-  daytrip: '找個週六從台北去九份平溪一日遊，兩大一小，看老街、放天燈，搭大眾運輸，晚上八點前回到家',
+  weekend: 'Plan a relaxed weekend in Bath with a friend, including local food, a walk through the old town and return rail travel.',
+  multicity: 'Plan a twelve-day rail trip from London through Zurich, Lucerne and Milan, focusing on scenery and markets without rushing.',
+  daytrip: 'Plan a Saturday day trip from London to Brighton for two adults and one child, using public transport and returning by 8pm.',
 }
 document.querySelectorAll('.preset-stub').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -378,15 +402,15 @@ $('punch').addEventListener('click', async () => {
     res = await fetch('/api/plan', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence, mock }),
+      body: JSON.stringify({ sentence, mock, language }),
     })
   } catch {
-    logError('[error] 連不到 local studio——確認 npm run studio:local 還在跑，再按一次「出票」。')
+    logError('[error] Cannot reach the local studio. Check that npm run studio:local is still running, then try again.')
     return
   }
   if (!res.ok) {
     const e = await res.json().catch(() => ({}))
-    logError('[error] 出票沒有開始：' + (e.error || `server 回了 ${res.status}`) + '——修正後再按一次「出票」。')
+    logError('[error] Printing did not start: ' + (e.error || `server returned ${res.status}`) + '. Fix the issue and try again.')
     return
   }
   $('board').classList.add('show')

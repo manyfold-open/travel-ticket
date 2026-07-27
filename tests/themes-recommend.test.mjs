@@ -13,10 +13,10 @@ test('every registered theme has selection metadata', () => {
 
 test('recommendThemes: llm picks are validated + deduped', async () => {
   const llm = async () => ({ picks: [
-    { name: 'japan', why: '最貼合目的地' },
+    { name: 'japan', why: 'Best match for the destination' },
     { name: 'japan', why: 'dupe' },
     { name: 'nonexistent', why: 'invalid' },
-    { name: 'default', why: '通用' },
+    { name: 'default', why: 'Versatile option' },
   ] })
   const r = await recommendThemes({ destination: 'Japan: Kyoto', brief: {}, llm })
   assert.deepEqual(r.map((p) => p.name), ['japan', 'default'])
@@ -34,5 +34,5 @@ test('recommendThemes: llm failure → deterministic fallback, first = resolveTh
 
 test('custom option shape', () => {
   assert.equal(CUSTOM_OPTION.enabled, true)
-  assert.ok(CUSTOM_OPTION.label.includes('自己描述'))
+  assert.ok(CUSTOM_OPTION.label.includes('Describe your own'))
 })

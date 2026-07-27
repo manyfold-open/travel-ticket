@@ -49,6 +49,7 @@ line, line-strong, line-btn, line-coupon
 使用者自訂風格描述(可空): {{USER_STYLE}}
 
 ## 輸出(嚴格 JSON,不要多餘文字):
+所有 `name`、`stampText`、`eyebrow` 和 `rationale` 必须遵循系统指定的输出语言；保持专有名词、URL、运输公司名称和来源标签安全，不要使用繁体中文。
 {
   "name": "<kebab-case 主題名,如 paris / tuscany>",
   "tokens": { "rail": "#...", "rail-deep": "#...", "rail-press": "#...",

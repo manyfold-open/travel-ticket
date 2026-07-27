@@ -19,20 +19,21 @@ import { generateCustomTheme } from '../pipeline/customTheme.mjs'
 import { resolveTheme } from '../pipeline/themes.mjs'
 import { buildItineraryFiles } from '../pipeline/render.mjs'
 import { saveTripFiles, saveTripJson } from './storage.mjs'
+import { normalizeLanguage } from '../pipeline/language.mjs'
 
 const noopLog = () => {}
 
-export async function runBriefStep(ctx, sentence, todayIso) {
+export async function runBriefStep(ctx, sentence, todayIso, language = 'en-GB') {
   const statuses = []
   const { supervise } = makeSupervisor(statuses, noopLog)
-  const run = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso), { confidence: 0.9 })
+  const run = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso, language), { confidence: 0.9 })
   // Carry the underlying cause: this message is what /progress shows the user
   // and what trip-job.ts stores as the terminal error, so dropping it turns
   // every distinct failure (timeout, bad JSON, dead peer) into one dead end.
   if (!run.ok) {
     throw new Error(`Trip Brief Agent failed — cannot continue without a brief. ${run.error?.message ?? ''}`.trim())
   }
-  return { statuses, brief: run.result }
+  return { statuses, brief: { ...run.result, language: normalizeLanguage(language) } }
 }
 
 export async function runTimezoneStep(brief) {
@@ -72,12 +73,12 @@ export async function runNotionStep(ctx, brief, deps = {}) {
   return { statuses, notion: run.result }
 }
 
-export async function runComposerStep(ctx, { sentence, brief, timezone, discovery, context, calendar }) {
+export async function runComposerStep(ctx, { sentence, brief, timezone, discovery, context, calendar, language }) {
   const statuses = []
   const { supervise, recordStatus } = makeSupervisor(statuses, noopLog)
-  const run = await supervise('Itinerary Composer Agent', () => runComposerAgent(ctx, { sentence, brief, timezone, discovery, context, calendar }), { confidence: 0.85 })
+  const run = await supervise('Itinerary Composer Agent', () => runComposerAgent(ctx, { sentence, brief, timezone, discovery, context, calendar, language }), { confidence: 0.85 })
   if (run.ok) return { statuses, composed: run.result }
-  const composed = localCompose(brief, discovery)
+  const composed = localCompose({ ...brief, language }, discovery)
   recordStatus('Orchestrator Fallback Composer', 'completed', 0.5, 'Composer agent unavailable; itinerary composed locally.')
   return { statuses, composed }
 }
@@ -85,7 +86,7 @@ export async function runComposerStep(ctx, { sentence, brief, timezone, discover
 // design: {kind:'preset', name} | {kind:'custom', style} | undefined. Never
 // throws — a failed/ungated custom generation falls back to the resolved
 // preset, exactly like trip.mjs's renderTicket.
-export async function runThemeStep(ctx, { design, brief, promptTemplate }) {
+export async function runThemeStep(ctx, { design, brief, promptTemplate, language }) {
   const themeName = resolveTheme({
     theme: design?.kind === 'preset' ? design.name : undefined,
     destination_timezone: brief.destination_timezone,
@@ -96,7 +97,7 @@ export async function runThemeStep(ctx, { design, brief, promptTemplate }) {
   }
   let result
   try {
-    result = await generateCustomTheme({ destination: brief.destination, style: design.style, llm: (req) => runStructuredJson(ctx, req), promptTemplate })
+    result = await generateCustomTheme({ destination: brief.destination, style: design.style, language, llm: (req) => runStructuredJson(ctx, req), promptTemplate })
   } catch (e) {
     result = { ok: false, reason: `theme generation failed: ${e.message}`, failures: [] }
   }

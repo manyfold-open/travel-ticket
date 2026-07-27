@@ -66,6 +66,21 @@ test('handleCreateTrip: valid body -> 201, durable job initialized without an ex
   assert.equal(params.visitorId, VALID_BODY.visitor_id)
   assert.equal(typeof params.todayIso, 'string')
   assert.equal(params.design, undefined)
+  assert.equal(params.language, 'en-GB')
+})
+
+test('handleCreateTrip: selected zh-CN is stored in the durable job params', async () => {
+  const env = makeEnv()
+  const res = await handleCreateTrip(req({ ...VALID_BODY, language: 'zh-CN' }), env)
+  assert.equal(res.status, 201)
+  assert.equal(env.TRIP_JOBS.initialized[0].params.language, 'zh-CN')
+})
+
+test('handleCreateTrip: invalid language safely falls back to en-GB', async () => {
+  const env = makeEnv()
+  const res = await handleCreateTrip(req({ ...VALID_BODY, language: 'zh-Hant' }), env)
+  assert.equal(res.status, 201)
+  assert.equal(env.TRIP_JOBS.initialized[0].params.language, 'en-GB')
 })
 
 test('handleCreateTrip: creates a cookie-backed visitor when legacy visitor_id is omitted', async () => {

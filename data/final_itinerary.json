@@ -1,8 +1,9 @@
 {
   "artifact_type": "final_itinerary",
-  "trip_id": "trip_20260726T224424Z_2b9d5b72",
+  "trip_id": "trip_20260727T105945Z_50b008f9",
   "status": "partial",
   "destination": "Japan: Kyoto & Osaka",
+  "language": "en-GB",
   "slug": "japan-kyoto-osaka-2026",
   "home_timezone": "Asia/Taipei",
   "destination_timezone": "Asia/Tokyo",
@@ -40,7 +41,7 @@
         "food",
         "temples"
       ],
-      "language": "zh-Hant",
+      "language": "en-GB",
       "notes": "Mock brief — fixed data for pipeline testing."
     }
   },
@@ -170,13 +171,13 @@
         {
           "variant": "both",
           "type": "sight",
-          "title": "Fushimi Inari 清晨參道",
+          "title": "Fushimi Inari early walk",
           "start_utc": "2026-09-11T00:00:00Z",
           "end_utc": "2026-09-11T02:30:00Z",
           "timezone": "Asia/Tokyo",
           "location": "Kyoto",
           "transport_minutes": 0,
-          "notes": "早上人少。",
+          "notes": "Quieter in the morning.",
           "sources": [
             "Kyoto tourism"
           ]
@@ -208,13 +209,13 @@
         {
           "variant": "full",
           "type": "sight",
-          "title": "錦市場午後散步",
+          "title": "Nishiki Market stroll",
           "start_utc": "2026-09-11T04:30:00Z",
           "end_utc": "2026-09-11T06:00:00Z",
           "timezone": "Asia/Tokyo",
           "location": "Kyoto",
           "transport_minutes": 0,
-          "notes": "邊走邊吃。",
+          "notes": "Browse and snack as you go.",
           "sources": [
             "Kyoto tourism"
           ]
@@ -247,7 +248,7 @@
           "timezone": "Asia/Tokyo",
           "location": "Kyoto → Osaka",
           "transport_minutes": 30,
-          "notes": "JR 京都線新快速。",
+          "notes": "JR Kyoto Line rapid service.",
           "sources": [
             "JR West"
           ]
@@ -255,7 +256,7 @@
         {
           "variant": "both",
           "type": "meal",
-          "title": "道頓堀晚餐",
+          "title": "Dotonbori dinner",
           "start_utc": "2026-09-12T01:00:00Z",
           "end_utc": "2026-09-12T03:00:00Z",
           "timezone": "Asia/Tokyo",
@@ -293,7 +294,7 @@
         {
           "variant": "full",
           "type": "sight",
-          "title": "大阪城公園",
+          "title": "Osaka Castle Park",
           "start_utc": "2026-09-12T04:45:00Z",
           "end_utc": "2026-09-12T06:45:00Z",
           "timezone": "Asia/Tokyo",
@@ -355,7 +356,7 @@
       "notes": "Keep only the shared items and the slow-afternoon blocks."
     },
     "full": {
-      "notes": "Add the \"full\" variant sights when energy and weather allow."
+      "notes": "Add the full-variant sights when energy and weather allow."
     }
   },
   "actions_suggested": [
@@ -436,7 +437,7 @@
       },
       {
         "date": "2026-09-11",
-        "title": "Fushimi Inari 清晨參道",
+        "title": "Fushimi Inari early walk",
         "type": "sight",
         "variant": "both",
         "start_utc": "2026-09-11T00:00:00Z",
@@ -466,7 +467,7 @@
       },
       {
         "date": "2026-09-11",
-        "title": "錦市場午後散步",
+        "title": "Nishiki Market stroll",
         "type": "sight",
         "variant": "full",
         "start_utc": "2026-09-11T04:30:00Z",
@@ -496,7 +497,7 @@
       },
       {
         "date": "2026-09-12",
-        "title": "道頓堀晚餐",
+        "title": "Dotonbori dinner",
         "type": "meal",
         "variant": "both",
         "start_utc": "2026-09-12T01:00:00Z",
@@ -526,7 +527,7 @@
       },
       {
         "date": "2026-09-12",
-        "title": "大阪城公園",
+        "title": "Osaka Castle Park",
         "type": "sight",
         "variant": "full",
         "start_utc": "2026-09-12T04:45:00Z",

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>出票中 · Trip Ticket</title>
+<title>Printing · Trip Ticket</title>
 <meta name="theme-color" content="#efe0c3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,13 +11,16 @@
 </head>
 <body>
 <main class="page">
+  <div class="language-switcher" role="group" aria-label="Language">
+    <button type="button" data-language="en-GB" aria-pressed="true">EN</button><span class="language-divider" aria-hidden="true">|</span><button type="button" data-language="zh-CN" aria-pressed="false">简中</button>
+  </div>
   <div class="ticket-stack">
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
           <div class="eyebrow" id="eyebrow">Trip Ticket · Printing In Progress</div>
-          <h1 id="heading">出票<br><span>進行中</span></h1>
-          <p class="hint" id="hint">Agents 正在工作中——這頁會每 1.5 秒更新一次進度，完成後自動跳到你的手冊。</p>
+          <h1 id="heading">Printing<br><span>In progress</span></h1>
+          <p class="hint" id="hint">Agents are working. This page checks progress every 1.5 seconds and opens your handbook when it is ready.</p>
           <div class="board" id="board">
             <div id="agents"></div>
             <div class="logbox" id="log"></div>
@@ -28,9 +31,9 @@
         <aside class="stub">
           <div class="stub-title label">Boarding Info</div>
           <ol class="terms">
-            <li>真實模式全程約 5–8 分鐘，網路搜尋（Local Discovery Agent）通常佔大半時間。</li>
-            <li>每個 agent 的狀態都誠實記錄——某個 agent 顯示 skipped 或 failed 不代表整趟出票失敗，Composer 會用能拿到的資料排出行程。</li>
-            <li>完成後這頁會自動跳轉到你的車票手冊，不需要手動重新整理。</li>
+            <li>A live run usually takes 5–8 minutes, with Local Discovery web research taking most of the time.</li>
+            <li>Every agent status is recorded honestly. A skipped or failed agent does not necessarily stop the trip; Composer uses the data it can access.</li>
+            <li>When complete, this page opens your ticket handbook automatically. No refresh is needed.</li>
           </ol>
         </aside>
       </div>
@@ -88,7 +91,7 @@ async function poll() {
     pollFailures = 0
   } catch {
     pollFailures += 1
-    if (pollFailures === 3) $('error').textContent = '暫時連不上伺服器，繼續重試中。'
+    if (pollFailures === 3) $('error').textContent = 'The server is temporarily unavailable. Retrying...'
     return
   }
   const phaseChanged = s.phase !== lastPhase
@@ -97,35 +100,36 @@ async function poll() {
   renderLog(s.log)
   if (s.phase === 'draft') {
     clearInterval(polling); polling = null
-    location.href = s.links?.connect || `/trips/${encodeURIComponent(tripId)}/connect`
+    location.href = TripTicketLanguage.carry(s.links?.connect || `/trips/${encodeURIComponent(tripId)}/connect`)
   } else if (s.phase === 'queued') {
-    announce('排隊中，即將開始')
+    announce('Queued and starting soon')
   } else if (s.phase === 'running') {
     const doneCount = Object.values(s.agents || {}).filter((v) => v !== 'running' && v !== 'pending').length
-    announce(`Agents 工作中，${doneCount} / ${AGENTS.length} 完成`)
+    announce(`Agents working: ${doneCount} / ${AGENTS.length} complete`)
   } else if (s.phase === 'done') {
     clearInterval(polling); polling = null
-    if (phaseChanged) announce('手冊完成，正在打開')
-    location.href = s.links?.result || `/trips/${encodeURIComponent(tripId)}/`
+    if (phaseChanged) announce('Handbook complete. Opening now.')
+    location.href = TripTicketLanguage.carry(s.links?.result || `/trips/${encodeURIComponent(tripId)}/`)
   } else if (s.phase === 'error') {
     clearInterval(polling); polling = null
-    // The heading used to stay on "進行中" after a terminal failure, so a dead
+    // The heading used to stay on "In progress" after a terminal failure, so a dead
     // run read as one still in progress with a stray error line under it.
     $('eyebrow').textContent = 'Trip Ticket · Printing Failed'
-    $('heading').innerHTML = '出票<br><span>失敗</span>'
-    $('hint').textContent = '這趟出票沒有完成，下面是每個 agent 的最後狀態。可以回首頁重新出票。'
-    document.title = '出票失敗 · Trip Ticket'
-    $('error').textContent = '出票失敗：' + (s.error || '原因不明，請重新從首頁再試一次。')
-    if (phaseChanged) announce('出票失敗')
+    $('heading').innerHTML = 'Printing<br><span>Failed</span>'
+    $('hint').textContent = 'This ticket could not be completed. The final status of each agent is shown below. Return home to try again.'
+    document.title = 'Printing failed · Trip Ticket'
+    $('error').textContent = 'Printing failed: ' + (s.error || 'Unknown error. Return home and try again.')
+    if (phaseChanged) announce('Printing failed')
   }
 }
 
 if (!tripId) {
-  $('error').textContent = '找不到 trip id，請重新從首頁出票。'
+  $('error').textContent = 'Trip ID not found. Return home and start again.'
 } else {
   polling = setInterval(poll, 1500)
   poll()
 }
 </script>
+<script src="/language.js"></script>
 </body>
 </html>

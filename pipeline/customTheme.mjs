@@ -6,6 +6,7 @@
 // import) so this function runs unchanged in a Cloudflare Worker.
 import { checkTokens, validateOverrides } from './contrast.mjs'
 import { DEFAULT_TOKENS } from './themes.mjs'
+import { assertLanguageOutput, languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput } from './language.mjs'
 
 export const CUSTOM_ALLOWED_KEYS = ['rail', 'rail-deep', 'rail-press', 'stamp', 'night', 'gold', 'green', 'blue', 'board', 'board-hi', 'board-lo', 'board-edge']
 
@@ -32,18 +33,23 @@ const gate = (tokens) => {
 // through gate({}) as "no problems, no failures" → false ok:true.
 const isUsableTokens = (t) => t !== null && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).length > 0
 
-export async function generateCustomTheme({ destination, style, llm, promptTemplate }) {
+export async function generateCustomTheme({ destination, style, language, llm, promptTemplate }) {
+  const normalLanguage = normalizeLanguage(language)
   if (!promptTemplate) return { ok: false, reason: 'prompt template missing', failures: [] }
   const prompt = promptTemplate.replace('{{DESTINATION}}', destination).replace('{{USER_STYLE}}', style || '(none)')
-  const system = 'You are the theme generator for a retro train-ticket travel product. Respond with strict JSON only.'
+  const system = `You are the theme generator for a retro train-ticket travel product. Respond with strict JSON only. ${languagePromptInstructions(normalLanguage)}`
   let out
   try { out = await llm({ system, prompt, schema: THEME_SCHEMA }) } catch (e) {
     return { ok: false, reason: `theme generation failed: ${e.message}`, failures: [] }
   }
   if (!out || typeof out !== 'object') return { ok: false, reason: 'theme generation returned no result', failures: [] }
   if (!isUsableTokens(out.tokens)) return { ok: false, reason: 'theme generation returned no usable tokens', failures: [] }
+  out = normalizeLanguageOutput(out, normalLanguage)
   let check = gate(out.tokens)
-  if (check.pass) return { ok: true, tokens: out.tokens, motifs: out.motifs ?? {}, name: out.name, rationale: out.rationale ?? '' }
+  if (check.pass) {
+    try { assertLanguageOutput({ name: out.name, motifs: out.motifs, rationale: out.rationale }, normalLanguage) } catch { return { ok: false, reason: 'theme copy failed language validation', failures: [] } }
+    return { ok: true, tokens: out.tokens, motifs: out.motifs ?? {}, name: out.name, rationale: out.rationale ?? '' }
+  }
 
   // one repair retry: feed the failing pairs back
   const repairPrompt = `${prompt}\n\nYour previous attempt FAILED these contrast checks — darken/desaturate the involved colors and return corrected full JSON:\n${JSON.stringify(check.failures)}\nPrevious tokens: ${JSON.stringify(out?.tokens ?? {})}`
@@ -52,7 +58,11 @@ export async function generateCustomTheme({ destination, style, llm, promptTempl
   }
   if (!out || typeof out !== 'object') return { ok: false, reason: 'theme repair returned no result', failures: check.failures }
   if (!isUsableTokens(out.tokens)) return { ok: false, reason: 'theme generation returned no usable tokens', failures: check.failures }
+  out = normalizeLanguageOutput(out, normalLanguage)
   check = gate(out.tokens)
-  if (check.pass) return { ok: true, tokens: out.tokens, motifs: out.motifs ?? {}, name: out.name, rationale: out.rationale ?? '' }
+  if (check.pass) {
+    try { assertLanguageOutput({ name: out.name, motifs: out.motifs, rationale: out.rationale }, normalLanguage) } catch { return { ok: false, reason: 'theme repair copy failed language validation', failures: [] } }
+    return { ok: true, tokens: out.tokens, motifs: out.motifs ?? {}, name: out.name, rationale: out.rationale ?? '' }
+  }
   return { ok: false, reason: 'contrast gate failed after repair', failures: check.failures }
 }

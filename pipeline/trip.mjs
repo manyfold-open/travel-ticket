@@ -30,6 +30,7 @@ import { renderItinerary } from './render-local.mjs'
 import {
   tripDirName, customTokensFrom, customMotifsFrom, makeSupervisor, localCompose, assembleItinerary, parseDesignChoice,
 } from './trip-core.mjs'
+import { normalizeLanguage } from './language.mjs'
 
 export { tripDirName, customTokensFrom, customMotifsFrom, parseDesignChoice }
 
@@ -56,19 +57,19 @@ const MOCK_BRIEF = {
   no_car: true,
   bases: [{ name: 'Kyoto', nights: 2 }, { name: 'Osaka', nights: 1 }],
   interests: ['food', 'temples'],
-  language: 'zh-Hant',
+  language: 'en-GB',
   notes: 'Mock brief — fixed data for pipeline testing.',
 }
 
 const MOCK_DISCOVERY = {
   pois: [
-    { title: 'Fushimi Inari 清晨參道', base: 'Kyoto', kind: 'sight', duration_minutes: 150, best_time: 'morning', notes: '早上人少。', source_label: 'Kyoto tourism' },
-    { title: '錦市場午後散步', base: 'Kyoto', kind: 'sight', duration_minutes: 90, best_time: 'afternoon', notes: '邊走邊吃。', source_label: 'Kyoto tourism' },
-    { title: '道頓堀晚餐', base: 'Osaka', kind: 'meal', duration_minutes: 120, best_time: 'evening', notes: '', source_label: 'Osaka info' },
-    { title: '大阪城公園', base: 'Osaka', kind: 'sight', duration_minutes: 120, best_time: 'morning', notes: '', source_label: 'Osaka info' },
+    { title: 'Fushimi Inari early walk', base: 'Kyoto', kind: 'sight', duration_minutes: 150, best_time: 'morning', notes: 'Quieter in the morning.', source_label: 'Kyoto tourism' },
+    { title: 'Nishiki Market stroll', base: 'Kyoto', kind: 'sight', duration_minutes: 90, best_time: 'afternoon', notes: 'Browse and snack as you go.', source_label: 'Kyoto tourism' },
+    { title: 'Dotonbori dinner', base: 'Osaka', kind: 'meal', duration_minutes: 120, best_time: 'evening', notes: '', source_label: 'Osaka info' },
+    { title: 'Osaka Castle Park', base: 'Osaka', kind: 'sight', duration_minutes: 120, best_time: 'morning', notes: '', source_label: 'Osaka info' },
   ],
   transports: [
-    { from: 'Kyoto', to: 'Osaka', mode: 'JR', minutes: 30, notes: 'JR 京都線新快速。', source_label: 'JR West' },
+    { from: 'Kyoto', to: 'Osaka', mode: 'JR', minutes: 30, notes: 'JR Kyoto Line rapid service.', source_label: 'JR West' },
   ],
   sources: [
     { label: 'Kyoto tourism', url: 'https://kyoto.travel/en/' },
@@ -77,10 +78,22 @@ const MOCK_DISCOVERY = {
   ],
 }
 
+const MOCK_DISCOVERY_ZH = {
+  ...MOCK_DISCOVERY,
+  pois: [
+    { title: '伏见稻荷清晨散步', base: 'Kyoto', kind: 'sight', duration_minutes: 150, best_time: 'morning', notes: '早上的游客较少。', source_label: 'Kyoto tourism' },
+    { title: '锦市场漫步', base: 'Kyoto', kind: 'sight', duration_minutes: 90, best_time: 'afternoon', notes: '边走边逛边吃。', source_label: 'Kyoto tourism' },
+    { title: '道顿堀晚餐', base: 'Osaka', kind: 'meal', duration_minutes: 120, best_time: 'evening', notes: '', source_label: 'Osaka info' },
+    { title: '大阪城公园', base: 'Osaka', kind: 'sight', duration_minutes: 120, best_time: 'morning', notes: '', source_label: 'Osaka info' },
+  ],
+  transports: [{ from: 'Kyoto', to: 'Osaka', mode: 'JR', minutes: 30, notes: 'JR 京都线快速列车。', source_label: 'JR West' }],
+}
+
 // ---------------------------------------------------------------------------
 // planTrip — everything up to and including the composer. No design decisions.
 
-export async function planTrip(sentence, { mock = false, backend, log = console.error } = {}) {
+export async function planTrip(sentence, { mock = false, backend, language = 'en-GB', log = console.error } = {}) {
+  const normalLanguage = normalizeLanguage(language)
   const agentStatuses = []
   const { supervise, recordStatus } = makeSupervisor(agentStatuses, log)
 
@@ -94,15 +107,15 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
   // Stage 1 — brief
   let brief
   if (mock) {
-    brief = MOCK_BRIEF
+    brief = { ...MOCK_BRIEF, language: normalLanguage }
     recordStatus('Trip Brief Agent', 'completed', 1, 'Mock brief.')
     log('Trip Brief Agent: completed (mock)')
   } else {
-    const briefRun = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso), { confidence: 0.9 })
+    const briefRun = await supervise('Trip Brief Agent', () => runTripBriefAgent(ctx, sentence, todayIso, normalLanguage), { confidence: 0.9 })
     if (!briefRun.ok) {
       throw new Error(`Trip Brief Agent failed — cannot continue without a brief. ${briefRun.error?.message ?? ''}`.trim())
     }
-    brief = briefRun.result
+    brief = { ...briefRun.result, language: normalLanguage }
   }
   log(`brief: ${brief.destination}, ${brief.start_date} → ${brief.end_date}, ${brief.travellers} traveller(s), pace=${brief.pace}`)
 
@@ -110,7 +123,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
   const timezoneRun = await supervise('Timezone Agent', async () => runTimezoneAgent(brief), { confidence: 0.99 })
   const [discoveryRun, contextRun, calendarRun, notionRun] = await Promise.all([
     mock
-      ? (recordStatus('Local Discovery Agent', 'completed', 1, 'Mock discovery.'), log('Local Discovery Agent: completed (mock)'), Promise.resolve({ ok: true, result: MOCK_DISCOVERY }))
+      ? (recordStatus('Local Discovery Agent', 'completed', 1, 'Mock discovery.'), log('Local Discovery Agent: completed (mock)'), Promise.resolve({ ok: true, result: normalLanguage === 'zh-CN' ? MOCK_DISCOVERY_ZH : MOCK_DISCOVERY }))
       : supervise('Local Discovery Agent', () => runLocalDiscoveryAgent(ctx, brief), { confidence: 0.8 }),
     supervise('Travel Context Agent', () => runTravelContextAgent(ctx, brief)),
     supervise('Calendar Agent', () => runCalendarAgent(ctx, brief)),
@@ -131,6 +144,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
       sentence, brief, timezone, discovery,
       context: { ...(contextRun.result ?? { bookings: [] }), travel_notes: notionRun.result?.travel_notes ?? [] },
       calendar: calendarRun.result,
+      language: normalLanguage,
     }), { confidence: 0.85 })
     if (composerRun.ok) {
       composed = composerRun.result
@@ -145,6 +159,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
     presets: await recommendThemes({
       destination: brief.destination,
       brief,
+      language: normalLanguage,
       llm: (mock || !ctx) ? null : (req) => runStructuredJson(ctx, req),
     }),
     custom: CUSTOM_OPTION,
@@ -152,7 +167,7 @@ export async function planTrip(sentence, { mock = false, backend, log = console.
 
   return {
     plan: {
-      tripId, sentence, mock, brief, timezone, discovery, composed,
+      tripId, sentence, mock, language: normalLanguage, brief, timezone, discovery, composed,
       contextResult: contextRun.result, calendarResult: calendarRun.result, notionResult: notionRun.result,
       agentStatuses,
     },
@@ -179,7 +194,7 @@ export async function renderTicket(plan, choice, { skipRender = false, log = con
     if (!process.env.TRIP_NO_LLM && !plan.mock) {
       try {
         const ctx = await createContext()
-        result = await generateCustomTheme({ destination: plan.brief.destination, style: choice.style, llm: (req) => runStructuredJson(ctx, req) })
+        result = await generateCustomTheme({ destination: plan.brief.destination, style: choice.style, language: plan.language, llm: (req) => runStructuredJson(ctx, req) })
       } catch (e) { result = { ok: false, reason: e.message } }
     }
     if (result.ok) {
@@ -215,7 +230,7 @@ export async function renderTicket(plan, choice, { skipRender = false, log = con
     tripId: plan.tripId, sentence: plan.sentence, brief: plan.brief, timezone: plan.timezone,
     discovery: plan.discovery, composed: plan.composed,
     contextResult: plan.contextResult, calendarResult: plan.calendarResult, notionResult: plan.notionResult,
-    themeName, posterResult, agentStatuses: plan.agentStatuses,
+    themeName, posterResult, agentStatuses: plan.agentStatuses, language: plan.language,
   })
   if (themeUsed.custom) {
     // Recorded in the JSON so a --render-only re-print reproduces the custom look.
