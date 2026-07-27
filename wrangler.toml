@@ -73,12 +73,12 @@ max_concurrency = 5
 # ANTHROPIC_API_KEY — billed to the Manyfold account, not Anthropic directly.
 [vars]
 MF_API_URL = "https://api.manyfold.ai/api"
-MF_AGENT_ID = "agt_agpzmesx6f5prlyvhg77g4arbu"
-AGENT_BRIEF = "agt_agpzmetm5ryebfwufjl2h2rb4e"
-AGENT_DISCOVERY = "agt_agpzmeuncr33jpcjvlbtf4owmq"
-AGENT_CONTEXT_EXTRACTOR = "agt_agpzmevmgr6ktg2ybz57n5icgm"
-AGENT_COMPOSER = "agt_agpzmewhejz73kqbpembtejhqi"
-AGENT_THEME_DESIGNER = "agt_agpzmexfyb4vrkyev46m5e54fy"
+MF_AGENT_ID = "agt_agp2f7jkljygbbqavcmokhsgfq"
+AGENT_BRIEF = "agt_agp2f7jmnj7u7o7h5ujvsaauai"
+AGENT_DISCOVERY = "agt_agp2f7jopb2ofgm3two2q7gpzu"
+AGENT_CONTEXT_EXTRACTOR = "agt_agp2f7jqpnzujgiaidd6dd33ji"
+AGENT_COMPOSER = "agt_agp2f7jssb5zvmpusm2zng74y4"
+AGENT_THEME_DESIGNER = "agt_agp2f7jvc5ytrbt55tbqoe7kgi"
 
 # The production workflow bootstraps /settings from its
 # ADMIN_SETTINGS_PASSWORD GitHub environment secret.
