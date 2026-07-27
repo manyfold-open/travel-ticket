@@ -11,7 +11,7 @@ const GOOD_TOKENS = { // japan's palette: known to pass all 13 pairs
 }
 
 test('good llm output passes the gate', async () => {
-  const llm = async () => ({ name: 'kyoto-teal', tokens: GOOD_TOKENS, motifs: { stampText: '済' }, rationale: 'JR teal' })
+  const llm = async () => ({ name: 'kyoto-teal', tokens: GOOD_TOKENS, motifs: { stampText: 'VISITED' }, rationale: 'JR teal' })
   const r = await generateCustomTheme({ destination: 'Kyoto', style: '青綠', llm, promptTemplate })
   assert.equal(r.ok, true)
   assert.equal(r.tokens.rail, '#0b7d6e')

@@ -1,6 +1,7 @@
 // Contract shared by MCP clients and the renderer. Planning belongs to the
 // connected client model; this server only validates and prints the result.
 import crypto from 'node:crypto'
+import { DEFAULT_LANGUAGE, normalizeLanguage } from './language.mjs'
 
 export const ITINERARY_SCHEMA = {
   type: 'object',
@@ -14,6 +15,7 @@ export const ITINERARY_SCHEMA = {
     destination_timezone: { type: 'string', description: 'IANA timezone, e.g. Asia/Tokyo.' },
     home_timezone: { type: 'string', description: 'IANA timezone, e.g. Europe/London.' },
     travellers: { type: ['number', 'string'] },
+    language: { enum: ['en-GB', 'zh-CN'], description: 'Language used for all user-facing itinerary copy.' },
     summary: { type: 'string' },
     warnings: { type: 'array', items: { type: 'string' } },
     cover: { type: 'object' },
@@ -46,7 +48,7 @@ export const ITINERARY_SCHEMA = {
 export const ITINERARY_EXAMPLE = {
   artifact_type: 'final_itinerary',
   destination: 'Japan: Kyoto', destination_timezone: 'Asia/Tokyo', home_timezone: 'Europe/London',
-  travellers: 2, summary: 'A relaxed three-day Kyoto itinerary.', warnings: ['Verify opening hours and transport before booking.'],
+  travellers: 2, summary: 'A relaxed three-day Kyoto itinerary.', warnings: ['Verify opening hours and transport before booking.'], language: DEFAULT_LANGUAGE,
   cover: { title_top: 'Kyoto', title_accent: 'Autumn', eyebrow: 'Maple leaves and slow meals' },
   days: [{
     date: '2026-11-10', title: 'Arrival and Gion', base: 'Kyoto',
@@ -78,6 +80,7 @@ export function normalizeItinerary(input) {
     }
   }
   itinerary.artifact_type = 'final_itinerary'
+  itinerary.language = normalizeLanguage(itinerary.language)
   itinerary.trip_id = typeof itinerary.trip_id === 'string' && itinerary.trip_id ? itinerary.trip_id : `mcp_${new Date().toISOString().replace(/[-:.TZ]/g, '')}_${crypto.randomUUID().slice(0, 8)}`
   itinerary.slug = typeof itinerary.slug === 'string' && itinerary.slug ? itinerary.slug : `${slugify(itinerary.destination)}-${itinerary.days[0].date.slice(0, 4)}`
   itinerary.status ??= 'draft'

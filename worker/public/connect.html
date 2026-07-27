@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>連結帳號 · Trip Ticket</title>
+<title>Connect accounts · Trip Ticket</title>
 <meta name="theme-color" content="#efe0c3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,40 +33,43 @@
 </head>
 <body>
 <main class="page">
+  <div class="language-switcher" role="group" aria-label="Language">
+    <button type="button" data-language="en-GB" aria-pressed="true">EN</button><span class="language-divider" aria-hidden="true">|</span><button type="button" data-language="zh-CN" aria-pressed="false">简中</button>
+  </div>
   <div class="ticket-stack">
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
           <div class="eyebrow">Trip Ticket · Connect Accounts</div>
-          <h1>連結<br><span>既有資料</span></h1>
-          <p class="hint">連結 Gmail / Calendar / Notion 之後，Composer 可以參考你既有的訂位確認信、行事曆行程、旅遊筆記——這一步完全自由，跳過也不影響出票。</p>
+          <h1>Connect<br><span>Existing data</span></h1>
+          <p class="hint">Connect Gmail, Calendar or Notion so Composer can reference your existing booking confirmations, calendar events and travel notes. This step is optional and skipping it will not affect your ticket.</p>
           <div class="cards" id="cards">
             <div class="card" data-provider="gmail" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Gmail</b><small>讀取訂位／確認信，唯讀</small></div></div>
-              <button type="button" class="card-btn" data-action="gmail">連結 · Connect</button>
+              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Gmail</b><small>Read booking and confirmation emails only</small></div></div>
+              <button type="button" class="card-btn" data-action="gmail">Connect</button>
             </div>
             <div class="card" data-provider="calendar" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Google Calendar</b><small>比對既有行程時段</small></div></div>
-              <button type="button" class="card-btn" data-action="calendar">連結 · Connect</button>
+              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Google Calendar</b><small>Check existing events in the trip window</small></div></div>
+              <button type="button" class="card-btn" data-action="calendar">Connect</button>
             </div>
             <div class="card" data-provider="notion" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Notion</b><small>讀取旅遊筆記頁面</small></div></div>
-              <button type="button" class="card-btn" data-action="notion">連結 · Connect</button>
+              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Notion</b><small>Read travel note pages only</small></div></div>
+              <button type="button" class="card-btn" data-action="notion">Connect</button>
             </div>
           </div>
           <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
           <p class="hint" id="error" style="color:var(--gold)" role="alert"></p>
           <div class="done-row">
-            <button type="button" class="cta" id="start">開始出票 · Continue</button>
-            <button type="button" class="cta cta-ghost" id="skip">跳過，直接出票 · Skip</button>
+            <button type="button" class="cta" id="start">Start printing · Continue</button>
+            <button type="button" class="cta cta-ghost" id="skip">Skip and print · Skip</button>
           </div>
         </div>
         <aside class="stub">
           <div class="stub-title label">Boarding Info</div>
           <ol class="terms">
-            <li>每個連結都只授權讀取，不會寄信、不會改動你的行事曆或筆記。</li>
-            <li>「連結」會開新分頁完成 Google/Notion 的授權流程，完成後回到這頁即可看到狀態變成已連結。</li>
-            <li>不想連結任何帳號也沒關係——「跳過」直接用你剛剛的句子出票，效果一樣完整。</li>
+            <li>Every connection is read-only. It cannot send emails or change your calendar or notes.</li>
+            <li>Connect opens a new tab for Google or Notion authorisation. Return here when the status changes to connected.</li>
+            <li>Prefer not to connect anything? Skip and print using the sentence you just entered.</li>
           </ol>
         </aside>
       </div>
@@ -80,7 +83,7 @@ const pathMatch = location.pathname.match(/^\/trips\/([^/]+)\/connect\/?$/)
 const tripId = pathMatch ? decodeURIComponent(pathMatch[1]) : params.get('trip')
 
 if (!tripId) {
-  $('error').textContent = '找不到 trip id，請重新從首頁出票。'
+  $('error').textContent = 'Trip ID not found. Return to the home page and start again.'
 }
 
 function announce(text) {
@@ -91,10 +94,10 @@ function setCardState(provider, status, message) {
   const card = document.querySelector(`.card[data-provider="${provider}"]`)
   card.dataset.s = status
   const btn = card.querySelector('.card-btn')
-  if (status === 'connected') { btn.textContent = '已連結 · Connected'; btn.disabled = true }
-  else if (status === 'configuration_required') { btn.textContent = '尚未開放'; btn.disabled = true; if (message) card.querySelector('small').textContent = message }
-  else if (status === 'authorization_required') { btn.textContent = '等待授權中...'; btn.disabled = false }
-  else { btn.textContent = '連結 · Connect'; btn.disabled = false }
+  if (status === 'connected') { btn.textContent = 'Connected'; btn.disabled = true }
+  else if (status === 'configuration_required') { btn.textContent = 'Unavailable'; btn.disabled = true; if (message) card.querySelector('small').textContent = message }
+  else if (status === 'authorization_required') { btn.textContent = 'Awaiting authorisation...'; btn.disabled = false }
+  else { btn.textContent = 'Connect'; btn.disabled = false }
 }
 
 async function checkStatus(provider) {
@@ -114,12 +117,12 @@ async function startLink(provider) {
   try {
     res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}/link`, { method: 'POST' })
   } catch {
-    $('error').textContent = '連不到伺服器，請稍後再試。'
+    $('error').textContent = 'Could not reach the server. Please try again later.'
     return
   }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    $('error').textContent = body.error || `連結失敗（${res.status}）`
+    $('error').textContent = body.error || `Connection failed (${res.status}).`
     return
   }
   if (body.status === 'configuration_required') {
@@ -128,7 +131,7 @@ async function startLink(provider) {
   }
   if (body.status === 'authorization_required' && body.authorization_url) {
     setCardState(provider, 'authorization_required')
-    announce(`已開啟 ${provider} 授權分頁，完成後這裡會自動更新`)
+    announce(`${provider} authorisation opened in a new tab. This page will update automatically.`)
     window.open(body.authorization_url, '_blank', 'noopener')
     if (pollers[provider]) clearInterval(pollers[provider])
     pollers[provider] = setInterval(async () => {
@@ -136,7 +139,7 @@ async function startLink(provider) {
       const s = await r.json().catch(() => ({}))
       if (s.connected) {
         setCardState(provider, 'connected')
-        announce(`${provider} 已連結`)
+        announce(`${provider} connected`)
         clearInterval(pollers[provider])
       }
     }, 2000)
@@ -158,9 +161,9 @@ async function startTrip() {
     const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/start`, { method: 'POST' })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`)
-    location.href = body.links?.progress || `/trips/${encodeURIComponent(tripId)}/progress`
+    location.href = TripTicketLanguage.carry(body.links?.progress || `/trips/${encodeURIComponent(tripId)}/progress`)
   } catch (error) {
-    $('error').textContent = `無法開始出票：${error.message}`
+    $('error').textContent = `Could not start printing: ${error.message}`
     $('start').disabled = false
     $('skip').disabled = false
   }
@@ -168,5 +171,6 @@ async function startTrip() {
 $('start').addEventListener('click', startTrip)
 $('skip').addEventListener('click', startTrip)
 </script>
+<script src="/language.js"></script>
 </body>
 </html>

@@ -73,7 +73,7 @@ echo "$login" | grep -q '"authenticated":true' \
   || fail "access: login failed"
 
 home=$(curl --silent --show-error --max-time 30 --cookie "$cookie_jar" "$BASE/")
-echo "$home" | grep -q '一句話' \
+echo "$home" | grep -q 'One sentence' \
   && pass "home: application shell" \
   || fail "home: application shell missing"
 

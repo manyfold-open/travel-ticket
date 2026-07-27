@@ -35,5 +35,6 @@ export interface TripJobParams {
   sentence: string
   todayIso: string
   visitorId: string
+  language: 'en-GB' | 'zh-CN'
   design?: { kind: 'preset'; name: string } | { kind: 'custom'; style: string }
 }

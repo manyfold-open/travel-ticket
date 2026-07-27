@@ -4,6 +4,8 @@
 // pipeline (or any caller) can render arbitrary trips, not just the Swiss demo.
 import { buildPwaAssetFiles, pwaNames } from './pwa.mjs'
 import { THEMES, themeCss } from './themes.mjs'
+import { assertBritishEnglish } from './english.mjs'
+import { assertLanguageOutput, locale, normalizeLanguage } from './language.mjs'
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
@@ -15,7 +17,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
 
 const css = `
 /* Hallmark · design-system: docs/design-system.md · concept: train-ticket stack · register: brand · genre: bespoke (ticket) */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Caveat:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600;700&family=Noto+Sans:wght@400;500;700;900&display=swap');
 :root {
   color-scheme: light;
   --ink: #171713;
@@ -49,9 +51,9 @@ const css = `
   --board-edge: #070706;
   --lane-gradient: linear-gradient(90deg,#f5e7ca,#fffaf0,#e7efea);
   --font-display: "Archivo", sans-serif;
-  --font-body: "Noto Sans TC", "Archivo", sans-serif;
-  --font-mono: "IBM Plex Mono", "Noto Sans TC", ui-monospace, monospace;
-  --font-hand: "LXGW WenKai TC", "Noto Sans TC", serif;
+  --font-body: "Noto Sans", "Archivo", sans-serif;
+  --font-mono: "IBM Plex Mono", "Noto Sans", ui-monospace, monospace;
+  --font-hand: "Caveat", "Noto Sans", cursive;
   --shadow: 0 24px 70px rgba(34,28,19,.18);
 }
 * { box-sizing: border-box; }
@@ -60,7 +62,7 @@ a, button { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Noto Sans TC", "Archivo", sans-serif;
+  font-family: "Noto Sans", "Archivo", sans-serif;
   background: linear-gradient(135deg,var(--desk),var(--paper) 45%,var(--desk-shade));
 }
 body::before {
@@ -1101,14 +1103,14 @@ const posterCss = `
 }
 `
 
-const tzShortCode = (timeZone, atIso) => {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'short' })
+const tzShortCode = (timeZone, atIso, language = 'en-GB') => {
+  const parts = new Intl.DateTimeFormat(language, { timeZone, timeZoneName: 'short' })
     .formatToParts(new Date(atIso))
   return parts.find((p) => p.type === 'timeZoneName')?.value ?? timeZone
 }
 
-const tzOffsetMinutes = (timeZone, atIso) => {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+const tzOffsetMinutes = (timeZone, atIso, language = 'en-GB') => {
+  const parts = new Intl.DateTimeFormat(language, { timeZone, timeZoneName: 'longOffset' })
     .formatToParts(new Date(atIso))
   const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00'
   const match = raw.match(/GMT([+-])(\d{2}):(\d{2})/)
@@ -1246,6 +1248,11 @@ const barcodeStyle = (seed) => {
 // render-local.mjs) so this function runs unchanged in a Cloudflare Worker.
 // Async because PWA icon generation deflates PNG data via CompressionStream.
 export async function buildItineraryFiles(itinerary, { customTokens, customMotifs, hasPoster }) {
+  const language = normalizeLanguage(itinerary.language)
+  if (language === 'zh-CN') assertLanguageOutput(itinerary, language)
+  else assertBritishEnglish(itinerary)
+  itinerary.language = language
+  const copy = locale(language)
   const tripId = itinerary.trip_id || 'trip_unknown'
   const shortId = tripId.split('_').at(-1).slice(0, 4)
   const dtz = itinerary.destination_timezone || 'UTC'
@@ -1274,31 +1281,31 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   const themeOverrideCss = themeCss(themeName) + customCss
   const anchorIso = days[0]?.items?.[0]?.start_utc || new Date().toISOString()
 
-  const offsetDiffHours = (tzOffsetMinutes(dtz, anchorIso) - tzOffsetMinutes(htz, anchorIso)) / 60
+  const offsetDiffHours = (tzOffsetMinutes(dtz, anchorIso, language) - tzOffsetMinutes(htz, anchorIso, language)) / 60
   const offsetLabel = offsetDiffHours === 0
-    ? 'Same time'
-    : `${offsetDiffHours > 0 ? '+' : ''}${offsetDiffHours} hour${Math.abs(offsetDiffHours) === 1 ? '' : 's'}`
-  const clockMini = offsetDiffHours === 0 ? 'Same as home' : `${offsetDiffHours > 0 ? '+' : ''}${offsetDiffHours}h vs home`
+    ? copy.sameTime
+    : `${offsetDiffHours > 0 ? '+' : ''}${offsetDiffHours} ${Math.abs(offsetDiffHours) === 1 ? copy.hour : copy.hours}`
+  const clockMini = offsetDiffHours === 0 ? copy.sameAsHome : `${offsetDiffHours > 0 ? '+' : ''}${offsetDiffHours}h vs ${copy.home.toLowerCase()}`
 
   const bases = [...new Set(days.map((d) => d.base).filter(Boolean))]
   const destinationTop = cover.title_top
     || (itinerary.destination || 'Trip').split(':')[0].trim()
   const destinationAccent = cover.title_accent || 'Itinerary'
   // PWA app names (installed handbook), derived from the cover title.
-  const { name: appName, short: appShort } = pwaNames(itinerary, { destinationTop, destinationAccent })
-  const eyebrow = cover.eyebrow || themeMotifs.eyebrow || 'Ticket stack · UTC-first preview'
+  const { name: appName, short: appShort } = pwaNames(itinerary, { destinationTop, destinationAccent, language })
+  const eyebrow = cover.eyebrow || themeMotifs.eyebrow || (language === 'zh-CN' ? '旅行车票 · UTC 预览' : 'Ticket stack · UTC-first preview')
   // stampJs below is a generated script: escape for SVG text first, then emit
   // the escaped value as a JSON JS string literal so it cannot break either.
-  const stampTextJs = JSON.stringify(esc(themeMotifs.stampText || 'VISITED'))
+  const stampTextJs = JSON.stringify(esc(themeMotifs.stampText || copy.stampMark))
   const travellers = cover.travellers ?? itinerary.travellers ?? '—'
 
   // Calendar dates are formatted in UTC on a noon anchor so the weekday/date
   // never shifts regardless of the destination offset.
-  const fmtDateShort = (date) => new Intl.DateTimeFormat('zh-Hant', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00Z`))
+  const fmtDateShort = (date) => new Intl.DateTimeFormat(language, { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00Z`))
   const dateRange = days.length ? `${fmtDateShort(days[0].date)}-${fmtDateShort(days.at(-1).date)}` : ''
   const stats = cover.stats || [
-    { b: `${days.length} days`, s: dateRange },
-    { b: `${bases.length} base${bases.length === 1 ? '' : 's'}`, s: bases.join(' · ') },
+    { b: language === 'zh-CN' ? `${days.length} 天` : `${days.length} days`, s: dateRange },
+    { b: language === 'zh-CN' ? `${bases.length} 个驻地` : `${bases.length} base${bases.length === 1 ? '' : 's'}`, s: bases.join(' · ') },
     { b: offsetLabel, s: `${cityOf(dtz)} vs ${cityOf(htz)}` },
   ]
   const routeStops = cover.route_stops
@@ -1306,26 +1313,32 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
       const index = days.findIndex((d) => d.base === base)
       return { name: base, label: days[index]?.title || `Day ${index + 1}`, day_index: index }
     })
-  const routeLabel = cover.route_label || 'Route'
+  const routeLabel = cover.route_label || copy.route
   const routePills = cover.route_pills || bases
 
   const pageSlug = (day) => `day-${day.date}.html`
   const modeItems = (day, mode = 'relaxed') => day.items.filter((it) => it.variant === 'both' || it.variant === mode)
-  const fmtTime = (iso, timeZone = dtz) => new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
-  const fmtDay = (date) => new Intl.DateTimeFormat('zh-Hant', { timeZone: 'UTC', month: 'short', day: 'numeric', weekday: 'short' }).format(new Date(`${date}T12:00:00Z`))
+  const fmtTime = (iso, timeZone = dtz) => new Intl.DateTimeFormat(language, { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
+  const fmtDay = (date) => new Intl.DateTimeFormat(language, { timeZone: 'UTC', month: 'short', day: 'numeric', weekday: 'short' }).format(new Date(`${date}T12:00:00Z`))
   const itemWindow = (day) => {
     const items = modeItems(day)
     if (!items.length) return ''
     return `${fmtTime(items[0].start_utc)}-${fmtTime(items.at(-1).end_utc)}`
   }
 
-  const head = (title, description, hasHand) => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${esc(description || itinerary.summary || title)}"><meta name="theme-color" content="#efe0c3"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="icon.svg"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="${esc(appShort)}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net">${hasHand ? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-tc-webfont@1.7.0/style.css">' : ''}<style>${css}${themeOverrideCss}${hasPoster ? posterCss : ''}</style><script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script></head><body>`
+  const head = (title, description, _hasHand) => `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${esc(description || itinerary.summary || title)}"><meta name="theme-color" content="#efe0c3"><meta name="content-language" content="${language}"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="icon.svg"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="${esc(appShort)}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><style>${css}${themeOverrideCss}${hasPoster ? posterCss : ''}</style><script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script></head><body>`
   const foot = `<script>if('serviceWorker'in navigator){addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(function(){})})}</script></body></html>`
   const page = (title, body, description, hasHand) => `${head(title, description, hasHand)}<main class="page"><div class="ticket-stack">${body}</div></main>${foot}`
   const annot = (note) => note ? `<span class="annot">${esc(note)}</span>` : ''
 
   const statusLine = (itinerary.agent_statuses || [])
     .map((s) => `${s.agent.replace(' Agent', '')}: ${s.status}`).join(' · ')
+  const variantLabel = (value) => language === 'zh-CN'
+    ? ({ both: '共同', relaxed: copy.relaxed, full: copy.full }[value] || value)
+    : value
+  const typeLabel = (value) => language === 'zh-CN'
+    ? ({ travel: '交通', sight: '景点', meal: '餐饮', rest: '休息' }[value] || value)
+    : value
   const allSources = itinerary.sources || []
   const sourceLinks = (sources) => sources.map((source) => `<a href="${esc(source.url || '#')}">${esc(source.label || source)}</a>`).join('')
   const terms = () => {
@@ -1336,7 +1349,8 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   const barcodeBlock = `<div class="barcode-block" aria-hidden="true"><div class="barcode" style="${barcodeStyle(tripId)}"></div><div class="serial" translate="no">${esc(tripId)}</div></div>`
   const actionTerms = () => {
     const list = itinerary.actions_suggested || []
-    return list.length ? `<ol class="terms" role="list">${list.map((action) => `<li><b>${esc(action.title)}</b>：${esc(action.description)}</li>`).join('')}</ol>` : ''
+    const separator = language === 'zh-CN' ? '：' : ': '
+    return list.length ? `<ol class="terms" role="list">${list.map((action) => `<li><b>${esc(action.title)}</b>${separator}${esc(action.description)}</li>`).join('')}</ol>` : ''
   }
   const daySources = (day) => {
     const labels = [...new Set(day.items.flatMap((it) => it.sources || []))]
@@ -1364,7 +1378,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   // 摘要拆段：一堵字牆沒有閱讀節奏。先照換行分段，再在「提醒/注意/備註」
   // 轉折處斷開，仍超過 ~140 字的段落從中點最近的句號再拆一次。
   const splitAtMid = (text) => {
-    const sentences = text.split(/(?<=。)/).filter(Boolean)
+    const sentences = text.split(language === 'zh-CN' ? /(?<=。)/ : /(?<=[.!?])\s+/).filter(Boolean)
     if (sentences.length < 2) return [text]
     const mid = text.length / 2
     let acc = 0
@@ -1379,7 +1393,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   }
   const summaryParas = (text) => String(text ?? '').trim()
     .split(/\n+/)
-    .flatMap((para) => para.split(/(?<=。)(?=(?:提醒|注意|備註)[：:])/))
+    .flatMap((para) => para.split(language === 'zh-CN' ? /(?<=[。！？])(?=(?:提醒|警告|注意)[:：])/u : /(?<=[.!?])(?=\s+(?:Reminder|Warning|Note)[:：])/i))
     .flatMap((para) => (para.length > 140 ? splitAtMid(para) : [para]))
     .map((para) => para.trim())
     .filter(Boolean)
@@ -1412,7 +1426,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
     const b = coupon.querySelector('.punch');
     b.setAttribute('aria-pressed', 'true');
     // 時刻是機器資料 → Data 角色（mono + tabular-nums）；hm 只含數字與冒號，安全
-    b.innerHTML = '已蓋 <span class="punch-time">' + fmt(iso).hm + '</span>';
+    b.innerHTML = ${JSON.stringify(copy.stampedButton)} + ' <span class="punch-time">' + fmt(iso).hm + '</span>';
   };
   const removeStamp = (coupon) => {
     coupon.classList.remove('stamped');
@@ -1420,7 +1434,7 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
     if (m) { m.classList.add('fading'); setTimeout(() => m.remove(), 200); }
     const b = coupon.querySelector('.punch');
     b.setAttribute('aria-pressed', 'false');
-    b.textContent = '蓋章';
+    b.textContent = ${JSON.stringify(copy.stamp)};
   };
   const stamps = load();
   document.querySelectorAll('.coupon[data-item-id]').forEach((coupon) => {
@@ -1447,8 +1461,8 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
     const dayIndex = Math.min(stop.day_index ?? index, days.length - 1)
     return `<a class="stop" href="${pageSlug(days[Math.max(dayIndex, 0)])}">${esc(stop.name)}<small>${esc(stop.label ?? '')}</small></a>`
   }).join('')}</div>
-  <div class="kv"><span>Travellers</span><b>${esc(travellers)}</b><span>Trip ID</span><b>${esc(shortId)}</b><span>Status</span><b>${esc(itinerary.status || 'draft')}</b></div>
-  ${days.length ? `<a class="cta" href="${pageSlug(days[0])}">Start Day 1</a>` : ''}
+  <div class="kv"><span>${copy.travellers}</span><b>${esc(travellers)}</b><span>${copy.tripId}</span><b>${esc(shortId)}</b><span>${copy.status}</span><b>${esc(itinerary.status || 'draft')}</b></div>
+  ${days.length ? `<a class="cta" href="${pageSlug(days[0])}">${esc(copy.startDay)}</a>` : ''}
   ${annot(coverNote)}
   <div class="fineprint">${terms()}</div>
   <div class="source-strip">${sourceLinks(allSources.slice(0, 6))}</div>
@@ -1461,14 +1475,14 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   <div class="ticket-grid">
     <div class="main">
       <div class="eyebrow">${esc(eyebrow)}</div>${hasPoster ? `
-      <figure class="poster-panel"><img src="poster.png" alt="${esc(destinationTop)} 記念海報" width="1536" height="1024"><figcaption class="poster-cap" aria-hidden="true" translate="no">記念切符 · ${esc(tripId)}</figcaption></figure>` : ''}
+      <figure class="poster-panel"><img src="poster.png" alt="${esc(destinationTop)} ${esc(copy.posterAlt)}" width="1536" height="1024"><figcaption class="poster-cap" aria-hidden="true" translate="no">${esc(copy.keepsake)} · ${esc(tripId)}</figcaption></figure>` : ''}
       <h1>${esc(destinationTop)}<br><span>${esc(destinationAccent)}</span></h1>
       <div class="route-pills">${routePills.map((pill) => `<span>${esc(pill)}</span>`).join('')}</div>
       ${summaryHtml}
       <div class="stats">${stats.map((stat) => `<div class="stat"><b>${esc(stat.b)}</b><span>${esc(stat.s)}</span></div>`).join('')}</div>
-      <div class="day-passes">${days.map((day, index) => `<a class="pass" href="${pageSlug(day)}"><span>Day ${index + 1}</span><b>${esc(fmtDay(day.date))}</b><span>${esc(day.title)} · ${esc(itemWindow(day))}</span></a>`).join('')}</div>
-      <div class="fineprint"><span class="stamp">Planning Preview</span>${actionTerms()}</div>
-      <div class="microprint" aria-hidden="true" translate="no">${esc(Array(4).fill(`${(itinerary.destination || 'trip').replace(/[,，].*$/, '')} · ${days[0]?.date ?? ''} → ${days.at(-1)?.date ?? ''} · ${travellers} pax · ${tripId}`).join('  ///  '))}</div>
+      <div class="day-passes">${days.map((day, index) => `<a class="pass" href="${pageSlug(day)}"><span>${language === 'zh-CN' ? `${copy.day}${index + 1}` : `${copy.day} ${index + 1}`}</span><b>${esc(fmtDay(day.date))}</b><span>${esc(day.title)} · ${esc(itemWindow(day))}</span></a>`).join('')}</div>
+      <div class="fineprint"><span class="stamp">${esc(copy.planningPreview)}</span>${actionTerms()}</div>
+      <div class="microprint" aria-hidden="true" translate="no">${esc(Array(4).fill(`${(itinerary.destination || 'trip').replace(/[,，].*$/, '')} · ${days[0]?.date ?? ''} → ${days.at(-1)?.date ?? ''} · ${travellers} · ${tripId}`).join('  ///  '))}</div>
     </div>
     ${coverStub()}
   </div>
@@ -1476,17 +1490,19 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
 <script>${ticketNavJs}</script>`, undefined, Boolean(coverNote))
 
   const ticks = () => [6, 9, 12, 15, 18, 21].map((hour) => `<span class="tick" style="left:${(hour / 24) * 100}%">${String(hour).padStart(2, '0')}</span>`).join('')
+  const zonedMinutes = (iso, timeZone) => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat(language, { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map((part) => [part.type, part.value]))
+    return Number(parts.hour || 0) * 60 + Number(parts.minute || 0)
+  }
   const mark = (it, timeZone = dtz) => {
     const start = new Date(it.start_utc)
     const end = new Date(it.end_utc)
-    const localStart = new Date(start.toLocaleString('en-US', { timeZone }))
-    const localEnd = new Date(end.toLocaleString('en-US', { timeZone }))
-    const left = ((localStart.getHours() * 60 + localStart.getMinutes()) / 1440) * 100
-    const right = ((localEnd.getHours() * 60 + localEnd.getMinutes()) / 1440) * 100
+    const left = (zonedMinutes(start, timeZone) / 1440) * 100
+    const right = (zonedMinutes(end, timeZone) / 1440) * 100
     return `<span class="mark ${esc(it.type)}" data-variant="${esc(it.variant)}" style="left:${left}%;width:${Math.max(1.5, right - left)}%"></span>`
   }
   const timeboard = (day) => {
-    const lanes = [[dtz, 'Destination'], [htz, 'Home Timezone'], ['UTC', 'UTC'], [htz, 'Body Clock']]
+    const lanes = [[dtz, copy.destination], [htz, copy.homeTimezone], ['UTC', 'UTC'], [htz, copy.bodyClock]]
     // aria-hidden: the agenda coupons below carry the same schedule as text.
     return `<div class="timeboard" aria-hidden="true">${lanes.map(([tz, label]) => `<div class="lane"><span class="label">${label}</span><div class="bar">${ticks()}${day.items.map((it) => mark(it, tz)).join('')}</div></div>`).join('')}</div>`
   }
@@ -1495,10 +1511,10 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
     // 否則 new Date(undefined) → Intl.format 丟 RangeError，整個 render 陣亡。
     const start = modeItems(day)[0]?.start_utc || day.items[0]?.start_utc || `${day.date}T12:00:00Z`
     const cards = [
-      { tz: dtz, label: 'Destination', sub: `${cityOf(dtz)} time`, code: tzShortCode(dtz, start) },
-      { tz: htz, label: 'Home', sub: `${cityOf(htz)} time`, code: tzShortCode(htz, start) },
-      { tz: 'UTC', label: 'UTC', sub: 'booking anchor', code: 'UTC' },
-      { tz: htz, label: 'Body Clock', sub: 'how it feels', code: tzShortCode(htz, start) },
+      { tz: dtz, label: copy.destination, sub: `${cityOf(dtz)} ${copy.destinationTime}`, code: tzShortCode(dtz, start, language) },
+      { tz: htz, label: copy.home, sub: `${cityOf(htz)} ${copy.destinationTime}`, code: tzShortCode(htz, start, language) },
+      { tz: 'UTC', label: 'UTC', sub: copy.bookingAnchor, code: 'UTC' },
+      { tz: htz, label: copy.bodyClock, sub: copy.feels, code: tzShortCode(htz, start, language) },
     ]
     return `<div class="world-clock" aria-label="World clock rail board">${cards.map((card) => `
     <div class="clock-card" data-clock-card>
@@ -1519,8 +1535,8 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   }
   const coupon = (it) => `
 <article class="coupon" data-type="${esc(it.type)}" data-variant="${esc(it.variant)}" data-item-id="${itemId(it)}">
-  <div class="coupon-main"><div class="type">${esc(it.type)} · ${esc(it.variant)}</div><strong>${esc(it.title)}</strong><p>${esc(it.location)}</p><p>${esc(it.notes)}</p>${it.transport_minutes ? `<span class="tag">${it.transport_minutes} min transfer</span>` : ''}</div>
-  <div class="coupon-time"><span>${fmtTime(it.start_utc)}<br>${fmtTime(it.end_utc)}</span><button class="punch" type="button" aria-pressed="false" aria-label="蓋章：${esc(it.title)}">蓋章</button></div>
+  <div class="coupon-main"><div class="type">${esc(typeLabel(it.type))} · ${esc(variantLabel(it.variant))}</div><strong>${esc(it.title)}</strong><p>${esc(it.location)}</p><p>${esc(it.notes)}</p>${it.transport_minutes ? `<span class="tag">${it.transport_minutes} ${esc(copy.transfer)}</span>` : ''}</div>
+      <div class="coupon-time"><span>${fmtTime(it.start_utc)}<br>${fmtTime(it.end_utc)}</span><button class="punch" type="button" aria-pressed="false" aria-label="${esc(copy.stampAria)}: ${esc(it.title)}">${esc(copy.stamp)}</button></div>
 </article>`
   const dayHtml = (day, index) => {
     const [titleFrom, titleTo] = titlePair(day)
@@ -1535,22 +1551,22 @@ export async function buildItineraryFiles(itinerary, { customTokens, customMotif
   <div class="ticket-grid">
     <div class="main">
       <div class="ticket-head">
-        <div class="nav"><a href="index.html">Cover</a>${previous ? `<a href="${pageSlug(previous)}">Previous</a>` : ''}${next ? `<a href="${pageSlug(next)}">Next</a>` : ''}</div>
-        <div class="mode" role="group" aria-label="行程版本切換"><button type="button" data-mode="relaxed" class="active" aria-pressed="true">Relaxed</button><button type="button" data-mode="full" aria-pressed="false">Full</button></div>
+      <div class="nav"><a href="index.html">${esc(copy.cover)}</a>${previous ? `<a href="${pageSlug(previous)}">${esc(copy.previous)}</a>` : ''}${next ? `<a href="${pageSlug(next)}">${esc(copy.next)}</a>` : ''}</div>
+        <div class="mode" role="group" aria-label="${esc(copy.itineraryVersion)}"><button type="button" data-mode="relaxed" class="active" aria-pressed="true">${esc(copy.relaxed)}</button><button type="button" data-mode="full" aria-pressed="false">${esc(copy.full)}</button></div>
       </div>
-      <div class="eyebrow">Day ${index + 1} ticket · ${esc(day.date)}</div>
+      <div class="eyebrow">${language === 'zh-CN' ? `${copy.day}${index + 1}` : `${copy.day} ${index + 1}`} ${esc(copy.ticket)} · ${esc(day.date)}</div>
       <h1${(fromPart.main + toPart.main).length > 16 ? ' class="long"' : ''}>${esc(fromPart.main)}<br><span>${esc(toPart.main)}</span></h1>${h1Note ? `<p class="h1-note">${esc(h1Note)}</p>` : ''}
-      <div class="journey"><div class="station"><span class="label">From</span><b>${esc(from)}</b></div><div class="arrow">→</div><div class="station"><span class="label">Base</span><b>${esc(day.base)}</b></div></div>
-      <div class="mini-grid"><div class="mini"><span class="label">Date</span><b>${esc(fmtDay(day.date))}</b></div><div class="mini"><span class="label">Window</span><b>${esc(itemWindow(day))}</b></div><div class="mini"><span class="label">Clock</span><b>${esc(clockMini)}</b></div><div class="mini"><span class="label">Mode</span><b>Relaxed / Full</b></div></div>
+      <div class="journey"><div class="station"><span class="label">${esc(copy.from)}</span><b>${esc(from)}</b></div><div class="arrow">→</div><div class="station"><span class="label">${esc(copy.base)}</span><b>${esc(day.base)}</b></div></div>
+      <div class="mini-grid"><div class="mini"><span class="label">${esc(copy.date)}</span><b>${esc(fmtDay(day.date))}</b></div><div class="mini"><span class="label">${esc(copy.window)}</span><b>${esc(itemWindow(day))}</b></div><div class="mini"><span class="label">${esc(copy.clock)}</span><b>${esc(clockMini)}</b></div><div class="mini"><span class="label">${esc(copy.mode)}</span><b>${esc(copy.relaxed)} / ${esc(copy.full)}</b></div></div>
       ${clockBoard(day)}
       ${timeboard(day)}
       <div class="agenda">${day.items.map(coupon).join('')}</div>
     </div>
     <aside class="stub">
-      <div class="stub-title label">Ticket conditions</div>
-      <div class="kv"><span>Date</span><b>${esc(fmtDay(day.date))}</b><span>Base</span><b>${esc(day.base)}</b><span>Stops</span><b>${modeItems(day).length}</b><span>Stamped</span><b data-stamp-count aria-live="polite">0</b><span>Trip</span><b>${esc(shortId)}</b></div>
-      <p class="stamp-note">蓋章＝到過的紀錄（含時刻），只存在這台裝置的瀏覽器裡。</p>
-      <div class="fineprint"><div class="stamp-row"><span class="stamp">Verify before booking</span>${annot(day.handwritten_note)}</div>${terms()}</div>
+      <div class="stub-title label">${esc(copy.ticketConditions)}</div>
+      <div class="kv"><span>${esc(copy.date)}</span><b>${esc(fmtDay(day.date))}</b><span>${esc(copy.base)}</span><b>${esc(day.base)}</b><span>${esc(copy.stops)}</span><b>${modeItems(day).length}</b><span>${esc(copy.stamped)}</span><b data-stamp-count aria-live="polite">0</b><span>${esc(copy.trip)}</span><b>${esc(shortId)}</b></div>
+      <p class="stamp-note">${esc(copy.stampNote)}</p>
+      <div class="fineprint"><div class="stamp-row"><span class="stamp">${esc(copy.verify)}</span>${annot(day.handwritten_note)}</div>${terms()}</div>
       <div class="source-strip">${sourceLinks(daySources(day))}</div>
       <div class="status-strip"><div>${esc(statusLine)}</div></div>
       ${barcodeBlock}
@@ -1608,7 +1624,7 @@ buttons.forEach(button=>button.addEventListener('click',()=>{
 setMode(new URLSearchParams(location.search).get('mode')==='full'?'full':'relaxed',false);
 // 撕票 View Transition 有接手時跳過 GSAP intro（pagereveal 在首次渲染前發出）。
 requestAnimationFrame(()=>{ if(!window.__vtIncoming) animateTicketIntro(); });
-</script>`, `Day ${index + 1} · ${day.date} · ${day.title}`, Boolean(day.handwritten_note))
+</script>`, `${language === 'zh-CN' ? `${copy.day}${index + 1}` : `${copy.day} ${index + 1}`} · ${day.date} · ${day.title}`, Boolean(day.handwritten_note))
   }
 
   const pages = ['index.html', ...days.map(pageSlug)]
@@ -1618,7 +1634,7 @@ requestAnimationFrame(()=>{ if(!window.__vtIncoming) animateTicketIntro(); });
   ])
   // PWA: manifest + service worker + icons, so the handbook installs to the
   // home screen and opens offline. Self-contained per dir (dist root + wallet).
-  const pwaFiles = await buildPwaAssetFiles({ name: appName, short: appShort, description: itinerary.summary || appName }, pages, hasPoster ? ['poster.png'] : [])
+  const pwaFiles = await buildPwaAssetFiles({ name: appName, short: appShort, description: itinerary.summary || appName, language }, pages, hasPoster ? ['poster.png'] : [])
   for (const [name, body] of pwaFiles) files.set(name, body)
 
   return { tripId, pages, files }

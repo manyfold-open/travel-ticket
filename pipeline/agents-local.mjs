@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { mergedTokens } from './themes.mjs'
+import { languagePromptInstructions, normalizeLanguage, assertLanguageOutput } from './language.mjs'
 import {
   createContext,
   BRIEF_SYSTEM, BRIEF_SCHEMA,
@@ -100,18 +101,22 @@ export async function runStructuredJson(ctx, req) {
 
 // cli-aware wrappers for the three agents whose backend dispatch previously
 // lived inline in agents.mjs. Non-cli backends delegate to the core.
-export async function runTripBriefAgent(ctx, sentence, todayIso) {
+export async function runTripBriefAgent(ctx, sentence, todayIso, language = 'en-GB') {
   if (ctx.backend === 'cli') {
-    const prompt = `Today is ${todayIso}. Trip request: ${sentence}`
-    return runCliJson({ system: BRIEF_SYSTEM, prompt, schema: BRIEF_SCHEMA })
+    const normalLanguage = normalizeLanguage(language)
+    const prompt = `Today is ${todayIso}. Requested output language: ${normalLanguage}. Trip request: ${sentence}`
+    const out = await runCliJson({ system: `${BRIEF_SYSTEM}\n${languagePromptInstructions(normalLanguage)}`, prompt, schema: BRIEF_SCHEMA })
+    return { ...assertLanguageOutput(out, normalLanguage), language: normalLanguage }
   }
-  return runTripBriefAgentCore(ctx, sentence, todayIso)
+  return runTripBriefAgentCore(ctx, sentence, todayIso, language)
 }
 
 export async function runLocalDiscoveryAgent(ctx, brief) {
   if (ctx.backend === 'cli') {
-    const prompt = `Trip brief:\n${JSON.stringify(brief, null, 2)}`
-    return runCliJson({ system: DISCOVERY_SYSTEM, prompt, schema: DISCOVERY_SCHEMA, webSearch: true })
+    const language = normalizeLanguage(brief?.language)
+    const prompt = `Requested output language: ${language}\nTrip brief:\n${JSON.stringify(brief, null, 2)}`
+    const out = await runCliJson({ system: `${DISCOVERY_SYSTEM}\n${languagePromptInstructions(language)}`, prompt, schema: DISCOVERY_SCHEMA, webSearch: true })
+    return assertLanguageOutput(out, language)
   }
   return runLocalDiscoveryAgentCore(ctx, brief)
 }
@@ -127,7 +132,9 @@ export async function runComposerAgent(ctx, args) {
       `Travel context (bookings): ${JSON.stringify(context)}`,
       `Calendar (fixed events): ${JSON.stringify(calendar)}`,
     ].join('\n\n')
-    return runCliJson({ system: COMPOSER_SYSTEM, prompt, schema: COMPOSER_SCHEMA })
+    const language = normalizeLanguage(args.language ?? brief?.language)
+    const out = await runCliJson({ system: `${COMPOSER_SYSTEM}\n${languagePromptInstructions(language)}\nRequested output language: ${language}`, prompt, schema: COMPOSER_SCHEMA })
+    return assertLanguageOutput(out, language)
   }
   return runComposerAgentCore(ctx, args)
 }

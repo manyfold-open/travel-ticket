@@ -36,7 +36,7 @@ function assetRequest(request, url, path) {
 
 function htmlNotFound(message = 'not found') {
   return new Response(
-    `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>Not found · Trip Ticket</title><body><main><h1>找不到頁面</h1><p>${message}</p><p><a href="/">回到 Trip Ticket</a></p></main></body></html>`,
+    `<!doctype html><html lang="en-GB"><meta charset="utf-8"><title>Not found · Trip Ticket</title><body><main><h1>Page not found</h1><p>${message}</p><p><a href="/">Return to Trip Ticket</a></p></main></body></html>`,
     {
       status: 404,
       headers: {
@@ -125,7 +125,7 @@ async function routeTripSite(request, env, tripId, rest) {
       return redirectResponse(`/trips/${encodeURIComponent(tripId)}/progress`, 302)
     }
   }
-  if (!file) return htmlNotFound('這份行程不存在或已經過期。')
+  if (!file) return htmlNotFound('This itinerary does not exist or has expired.')
   if (request.method === 'HEAD') {
     return new Response(null, { status: file.status, statusText: file.statusText, headers: file.headers })
   }
@@ -138,7 +138,7 @@ async function routeTripUi(request, env, url, tripId, page) {
 
   const job = env.TRIP_JOBS.get(env.TRIP_JOBS.idFromName(tripId))
   const status = await job.getStatus()
-  if (!status) return htmlNotFound('這份行程不存在或已經過期。')
+  if (!status) return htmlNotFound('This itinerary does not exist or has expired.')
 
   const encoded = encodeURIComponent(tripId)
   if (page === 'connect' && status.phase !== 'draft') {
@@ -220,7 +220,7 @@ export async function handleFetch(request, env) {
   if (segments[0] === 'trips') {
     if (segments.length === 1) return redirectResponse('/', 302)
     const tripId = segments[1]
-    if (!validTripId(tripId)) return htmlNotFound('行程編號格式不正確。')
+    if (!validTripId(tripId)) return htmlNotFound('The trip ID format is invalid.')
 
     if (segments.length === 3 && (segments[2] === 'connect' || segments[2] === 'progress')) {
       return routeTripUi(request, runtimeEnv, url, tripId, segments[2])

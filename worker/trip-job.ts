@@ -431,6 +431,7 @@ export class TripJob extends DurableObject<Env> {
     return {
       phase: state.phase,
       trip_id: state.params.tripId,
+      language: state.params.language ?? 'en-GB',
       agents,
       tasks,
       log,

@@ -50,18 +50,18 @@ test('customTokensFrom returns null when custom_theme is absent', () => {
 })
 
 test('customMotifsFrom preserves only supported string motifs', () => {
-  const itin = { ...MIN_ITIN, custom_theme: { motifs: { stampText: '済', eyebrow: '記念', ignored: 'no', bad: 1 } } }
-  assert.deepEqual(customMotifsFrom(itin), { stampText: '済', eyebrow: '記念' })
+  const itin = { ...MIN_ITIN, custom_theme: { motifs: { stampText: 'VISITED', eyebrow: 'Keepsake Ticket', ignored: 'no', bad: 1 } } }
+  assert.deepEqual(customMotifsFrom(itin), { stampText: 'VISITED', eyebrow: 'Keepsake Ticket' })
 })
 
 test('end-to-end: renderItinerary restores custom tokens and motifs from a saved itinerary', async () => {
-  const itin = { ...MIN_ITIN, custom_theme: { name: 'kyoto-teal', tokens: GOOD_TOKENS, motifs: { stampText: '済', eyebrow: '記念切符' } } }
+  const itin = { ...MIN_ITIN, custom_theme: { name: 'kyoto-teal', tokens: GOOD_TOKENS, motifs: { stampText: 'VISITED', eyebrow: 'Keepsake Ticket' } } }
   const tokens = customTokensFrom(itin)
   const motifs = customMotifsFrom(itin)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-only-'))
   await renderItinerary(itin, { outDir: dir, customTokens: tokens, customMotifs: motifs })
   const html = renderedHtml(dir)
   assert.ok(html.includes('--rail:'))
-  assert.ok(html.includes('記念切符'))
-  assert.ok(html.includes('済'))
+  assert.ok(html.includes('Keepsake Ticket'))
+  assert.ok(html.includes('VISITED'))
 })

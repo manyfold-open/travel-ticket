@@ -39,12 +39,12 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
     if (!/^\d{6}$/.test(passcode.value)) {
-      setMessage('請輸入完整的 6 位數字。', 'error')
+      setMessage('Enter the complete 6-digit code.', 'error')
       passcode.focus()
       return
     }
     button.disabled = true
-    setMessage('正在驗票…')
+    setMessage('Checking access…')
     try {
       await request('/login', {
         method: 'POST',
@@ -64,11 +64,11 @@
       if (status.authenticated) {
         location.replace(destination())
       } else if (!status.configured) {
-        setMessage('访问口令尚未配置，请联系管理员打开 Settings。', 'error')
+        setMessage('The access code is not configured. Ask an administrator to open Settings.', 'error')
         passcode.disabled = true
         button.disabled = true
       } else if (!status.ready) {
-        setMessage('访问 session 配置不完整，请联系管理员检查 Settings。', 'error')
+        setMessage('The access session is incomplete. Ask an administrator to check Settings.', 'error')
         passcode.disabled = true
         button.disabled = true
       }

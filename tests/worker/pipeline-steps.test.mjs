@@ -41,6 +41,25 @@ test('runBriefStep: throws when the Trip Brief Agent fails (no fallback, matches
   )
 })
 
+test('runBriefStep: persists the requested language even when the brief agent output differs', async () => {
+  const ctx = {
+    backend: 'sdk',
+    client: {
+      messages: {
+        create: async () => ({
+          content: [{ type: 'text', text: JSON.stringify({
+            destination: 'Kyoto', destination_timezone: 'Asia/Tokyo', home_city: 'Beijing', home_timezone: 'Asia/Shanghai',
+            start_date: '2027-09-10', end_date: '2027-09-11', travellers: 2, pace: 'relaxed', no_car: true,
+            bases: [], interests: [], language: 'en-GB', notes: '',
+          }) }],
+        }),
+      },
+    },
+  }
+  const result = await runBriefStep(ctx, 'a trip to Kyoto', '2027-01-01', 'zh-CN')
+  assert.equal(result.brief.language, 'zh-CN')
+})
+
 // The terminal error stored by trip-job.ts is all the user sees on /progress, so
 // it has to name the actual cause rather than only the generic dead end.
 test('runBriefStep: the thrown error carries the underlying cause', async () => {

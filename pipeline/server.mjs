@@ -34,13 +34,14 @@ const state = {
 
 const AGENT_LINE = /^\[orchestrator\] (.+?(?:Agent|Composer)): (completed|failed|timeout|skipped)/
 
-function startRun(sentence, mock) {
+function startRun(sentence, mock, language) {
   Object.assign(state, {
     phase: 'running', sentence, startedAt: Date.now(), finishedAt: null,
     log: [], agents: {}, manifest: null, error: null,
   })
   const args = [path.join(here, 'orchestrator.mjs')]
   if (mock) args.push('--mock')
+  if (language) args.push(`--language=${language}`)
   if (sentence) args.push(sentence)
   const child = spawn(process.execPath, args, { cwd: packageRoot })
   let stdout = ''
@@ -158,9 +159,9 @@ http.createServer((req, res) => {
     req.on('end', () => {
       if (tooBig) return
       try {
-        const { sentence, mock } = JSON.parse(body || '{}')
+        const { sentence, mock, language } = JSON.parse(body || '{}')
         if (!sentence && !mock) return send(res, 400, { error: 'sentence is required' })
-        startRun((sentence || '').trim(), Boolean(mock))
+        startRun((sentence || '').trim(), Boolean(mock), language)
         send(res, 202, { ok: true })
       } catch (err) {
         send(res, 400, { error: err.message })
@@ -175,7 +176,7 @@ http.createServer((req, res) => {
   }
   if (url.pathname === '/trip/') {
     const file = path.join(distDir, 'index.html')
-    if (!fs.existsSync(file)) return send(res, 404, '還沒有產生任何行程 — 回 <a href="/">入口</a> 出一張票。', TYPES['.html'])
+    if (!fs.existsSync(file)) return send(res, 404, 'No itinerary has been generated yet. Return to the <a href="/">home page</a> to print one.', TYPES['.html'])
     return send(res, 200, fs.readFileSync(file), TYPES['.html'])
   }
   if (url.pathname.startsWith('/trip/')) {
@@ -196,13 +197,13 @@ http.createServer((req, res) => {
   }
   if (url.pathname.startsWith('/trips/')) {
     let rel = safeDecode(url.pathname.slice('/trips/'.length))
-    if (rel === null) return send(res, 404, '這個網址壞掉了 — 回 <a href="/">入口</a> 從票夾重新點。', TYPES['.html'])
+    if (rel === null) return send(res, 404, 'That URL is invalid. Return to the <a href="/">home page</a> and choose a ticket from the wallet.', TYPES['.html'])
     if (rel.endsWith('/')) rel += 'index.html'
     if (!rel.includes('/')) rel += '/index.html'
     const base = path.join(distDir, 'trips')
     const file = path.resolve(base, rel)
     if (!insideDir(file, base) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      return send(res, 404, '這本手冊不在票夾裡了（可能被重新產出蓋掉）— 回 <a href="/">入口</a> 看現有的票。', TYPES['.html'])
+      return send(res, 404, 'That handbook is no longer in the wallet. Return to the <a href="/">home page</a> to see the available tickets.', TYPES['.html'])
     }
     return send(res, 200, fs.readFileSync(file), TYPES[path.extname(file)] ?? 'application/octet-stream')
   }
