@@ -9,6 +9,7 @@
 |---|---|
 | 理解系统组件、请求路径和数据存储 | [系统架构](./architecture.md) |
 | 理解 DAG、Manyfold A2A、重试和 fallback | [Agent 编排](./agent-orchestration.md) |
+| 实作 Manyfold connector agent | [Manyfold Connector Contract](./manyfold-connector-contract.md) |
 | 本地配置、Cloudflare 部署和故障排查 | [运行与部署](./operations.md) |
 | 理解产品目标和体验原则 | [产品原则](./product.md) |
 | 修改页面样式、主题或交互 | [设计系统](./design-system.md) |

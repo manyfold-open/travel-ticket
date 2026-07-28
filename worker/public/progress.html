@@ -41,7 +41,7 @@
   </div>
 </main>
 <script>
-const AGENTS = ['Trip Brief Agent', 'Timezone Agent', 'Local Discovery Agent', 'Travel Context Agent', 'Calendar Agent', 'Notion Agent', 'Itinerary Composer Agent', 'Theme Designer Agent']
+const AGENTS = ['Trip Brief Agent', 'Timezone Agent', 'Local Discovery Agent', 'Travel Context Agent', 'Itinerary Composer Agent', 'Theme Designer Agent']
 const $ = (id) => document.getElementById(id)
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 const params = new URLSearchParams(location.search)

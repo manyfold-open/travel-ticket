@@ -22,13 +22,11 @@ import {
   runTripBriefAgent as runTripBriefAgentCore,
   runLocalDiscoveryAgent as runLocalDiscoveryAgentCore,
   runComposerAgent as runComposerAgentCore,
-  runTravelContextAgent as runTravelContextAgentCore,
-  runNotionAgent as runNotionAgentCore,
+  runConnectorAgent as runConnectorAgentCore,
+  createMfContext,
   runStructuredJson as runStructuredJsonCore,
   posterPrompt,
 } from './agents.mjs'
-
-export { runCalendarAgent } from './agents.mjs' // no LLM/backend dependency at all
 
 const execFileAsync = promisify(execFile)
 
@@ -139,16 +137,13 @@ export async function runComposerAgent(ctx, args) {
   return runComposerAgentCore(ctx, args)
 }
 
-// runTravelContextAgent/runNotionAgent call an internal LLM only via their
-// deps.llm override, so cli support is a matter of supplying that override.
-const cliDeps = (ctx, deps) => (ctx?.backend === 'cli' ? { ...deps, llm: deps.llm ?? ((req) => runCliJson(req)) } : deps)
-
-export async function runTravelContextAgent(ctx, brief, deps = {}) {
-  return runTravelContextAgentCore(ctx, brief, cliDeps(ctx, deps))
+export async function runConnectorAgent(ctx, request) {
+  return runConnectorAgentCore(ctx, request)
 }
 
-export async function runNotionAgent(ctx, brief, deps = {}) {
-  return runNotionAgentCore(ctx, brief, cliDeps(ctx, deps))
+export function createLocalConnectorContext() {
+  if (!process.env.MF_API_URL || !process.env.MF_API_TOKEN || !process.env.MF_AGENT_ID || !process.env.AGENT_CONTEXT_EXTRACTOR) return null
+  return createMfContext(process.env, 'context')
 }
 
 // ---------------------------------------------------------------------------

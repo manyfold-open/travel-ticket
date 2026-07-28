@@ -9,13 +9,9 @@ Queue 和 alarm；不使用 Cloudflare Workflows。
 flowchart TD
   Brief["brief · Trip Brief"] --> Timezone["timezone · deterministic"]
   Timezone --> Discovery["discovery · Manyfold"]
-  Timezone --> Gmail["gmail · Composio + context peer"]
-  Timezone --> Calendar["calendar · Composio + deterministic"]
-  Timezone --> Notion["notion · Composio + context peer"]
+  Timezone --> Context["context · user Manyfold Connector"]
   Discovery --> Composer["composer · Manyfold"]
-  Gmail --> Composer
-  Calendar --> Composer
-  Notion --> Composer
+  Context --> Composer
   Composer --> Theme["theme · preset or Manyfold"]
   Theme --> Render["render · local renderer"]
 ```
@@ -29,7 +25,7 @@ flowchart TD
 | Source identity | `MF_AGENT_ID` | mint peer credential |
 | Brief | `AGENT_BRIEF` | 将一句话转为结构化 trip brief |
 | Discovery | `AGENT_DISCOVERY` | 目的地资料与来源 |
-| Context extractor | `AGENT_CONTEXT_EXTRACTOR` | 解释 Gmail、Notion context |
+| Context connector | `AGENT_CONTEXT_EXTRACTOR` | 通过用户 Manyfold Connector 处理 Gmail、Calendar、Notion |
 | Composer | `AGENT_COMPOSER` | 合并资料生成 itinerary |
 | Theme designer | `AGENT_THEME_DESIGNER` | 生成自定义视觉 tokens |
 
@@ -76,7 +72,7 @@ Peer credential cache 以 API URL、source agent 和 peer ID 共同隔离。401 
 | Brief | 硬失败；没有 brief 不能继续 |
 | Timezone | 使用 UTC 安全结果 |
 | Discovery | 使用空 POI、交通和来源 |
-| Gmail / Calendar / Notion | 未配置或未授权时诚实标记 skipped |
+| Context connector | Manyfold 未配置、provider 未授权或 agent 失败时诚实标记 skipped |
 | Composer | 使用本地 composer 生成可渲染结果 |
 | Custom theme | 回退到目的地 preset |
 | Render / persistence | 硬失败并展示原因 |
@@ -97,5 +93,5 @@ Fallback 不应伪装为真实 Agent 成功。生成的 itinerary 会保存 `age
 
 `GET /api/trips/:id/status` 仅作为旧客户端兼容别名保留。
 
-排错时先找失败 task，再判断是 credential mint、A2A Task、Composio、renderer
-还是持久化错误。不要仅根据 Agent 显示名称推测失败来源。
+排错时先找失败 task，再判断是 credential mint、A2A Task、Manyfold Connector、
+renderer 还是持久化错误。不要仅根据 Agent 显示名称推测失败来源。

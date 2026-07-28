@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { runMfJson } from '../mf-client.mjs'
+import { runA2AJson, runMfJson } from '../mf-client.mjs'
 import { agentCallBudgetMs } from '../agent-budgets.mjs'
 
 export const MODEL = 'claude-opus-4-8'
@@ -21,7 +21,7 @@ const ROLE_BINDINGS = {
 
 // Each role's A2A deadline comes from the same map that supervises it, so the
 // client aborts (and cancels the remote task) before the supervisor gives up on
-// it. gmail/calendar/notion all run on the `context` peer and share its budget.
+// All private connector work runs on the `context` peer and shares its budget.
 const ROLE_SUPERVISED_AS = {
   brief: 'Trip Brief Agent',
   discovery: 'Local Discovery Agent',
@@ -51,6 +51,21 @@ export function createMfContext(env, role) {
   }
 }
 
+export function createDirectA2AContext(credential, role = 'context') {
+  if (!credential?.rpcUrl || !credential?.token) {
+    throw new Error('Direct Manyfold context needs an A2A RPC URL and bearer token')
+  }
+  return {
+    backend: 'a2a-direct',
+    credential,
+    role,
+    timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role] ?? 'Travel Context Agent'),
+    onTaskState: (state, taskId, detail) => {
+      console.log(`[a2a-direct] ${role} ${taskId} ${state}${detail ? ` · ${detail}` : ''}`)
+    },
+  }
+}
+
 // Every mf-backed call needs the role's deadline and its logger; forgetting
 // either is how a stalled agent turn becomes an unexplained failure.
 export function mfCallOptions(ctx) {
@@ -61,6 +76,9 @@ export async function runStructuredJson(ctx, { system, prompt, schema, maxTokens
   if (!ctx) throw new Error('no LLM context')
   if (ctx.backend === 'mf') {
     return runMfJson(ctx.env, ctx.peerId, { system, prompt, schema }, mfCallOptions(ctx))
+  }
+  if (ctx.backend === 'a2a-direct') {
+    return runA2AJson(ctx.credential, { system, prompt, schema }, mfCallOptions(ctx))
   }
   const response = await ctx.client.messages.create({
     model: MODEL,

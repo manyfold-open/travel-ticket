@@ -23,8 +23,6 @@ export const AGENT_BUDGET_MS = {
   'Trip Brief Agent': 300_000,
   'Local Discovery Agent': 420_000,
   'Travel Context Agent': 240_000,
-  'Calendar Agent': 240_000,
-  'Notion Agent': 240_000,
   'Theme Designer Agent': 240_000,
   'Itinerary Composer Agent': 480_000,
   'Poster Agent': 300_000,

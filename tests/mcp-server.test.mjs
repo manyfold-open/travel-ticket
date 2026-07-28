@@ -14,7 +14,7 @@ const ITINERARY = {
 }
 
 function rpcSession() {
-  const child = spawn('node', [path.join(ROOT, 'pipeline/mcp-server.mjs')], { env: { ...process.env, COMPOSIO_API_KEY: '' } })
+  const child = spawn('node', [path.join(ROOT, 'pipeline/mcp-server.mjs')], { env: { ...process.env } })
   let buf = ''
   const pending = new Map()
   child.stdout.on('data', (data) => {
@@ -44,12 +44,13 @@ test('initialize → tools/list exposes only mechanical MCP tools', async () => 
   try {
     const list = await session.request({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
     const names = list.result.tools.map((tool) => tool.name)
-    for (const name of ['get_itinerary_schema', 'fetch_travel_context', 'create_visitor_id', 'create_connector_link', 'fetch_gmail_context', 'fetch_calendar_context', 'fetch_notion_context', 'render_ticket']) assert.ok(names.includes(name))
+    for (const name of ['get_itinerary_schema', 'fetch_travel_context', 'render_ticket']) assert.ok(names.includes(name))
+    for (const name of ['create_connector_link', 'fetch_gmail_context', 'fetch_calendar_context', 'fetch_notion_context']) assert.ok(!names.includes(name))
     assert.ok(!names.includes('plan_trip'))
   } finally { session.kill() }
 })
 
-test('schema and timezone tools do not need an LLM or Composio key', async () => {
+test('schema and timezone tools do not need a connector service', async () => {
   const session = await initialized()
   try {
     const schema = await session.request({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_itinerary_schema', arguments: {} } })

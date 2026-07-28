@@ -12,12 +12,10 @@ test('planTrip --mock returns plan + designOptions, no dist render', async () =>
   assert.ok(designOptions.custom.enabled)
 })
 
-test('planTrip --mock: composio-backed agents (no ctx, mock mode) skip honestly rather than crashing', async () => {
+test('planTrip --mock: connector agent skips honestly when Manyfold is not configured', async () => {
   const { plan } = await planTrip('', { mock: true, log: () => {} })
   const byName = Object.fromEntries(plan.agentStatuses.map((s) => [s.agent, s]))
-  for (const name of ['Travel Context Agent', 'Calendar Agent', 'Notion Agent']) {
-    assert.equal(byName[name].status, 'skipped', `${name}: ${byName[name].notes}`)
-  }
+  assert.equal(byName['Travel Context Agent'].status, 'skipped')
 })
 
 test('renderTicket with preset renders and stamps the theme', async () => {

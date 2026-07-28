@@ -18,7 +18,7 @@ test('handleConfig: reports Manyfold readiness without exposing secrets', async 
   assert.equal(res.status, 200)
   const body = await res.json()
   assert.equal(body.ready, true)
-  assert.deepEqual(body.services, { manyfold: true, connectors: false })
+  assert.deepEqual(body.services, { manyfold: true, connectors: true })
   assert.doesNotMatch(JSON.stringify(body), /manyfold-secret/)
 })
 

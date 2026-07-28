@@ -44,8 +44,7 @@ const itinerary = {
   },
   summary: 'Two travellers take the train from London to Switzerland from 16 to 20 July, using no car and keeping the pace relaxed: two nights in Lucerne, then Interlaken as a Jungfrau base, a Lauterbrunnen day and a final train journey back to London. This is a demo planning preview: Gmail had no expected confirmations and Google Calendar had no fixed events in the date range.',
   agent_statuses: [
-    { agent: 'Travel Context Agent', status: 'partial', confidence: 0.75, notes: 'Demo mode: Composio Gmail was searched and no booking confirmations were expected/found.' },
-    { agent: 'Calendar Agent', status: 'completed', confidence: 0.95, notes: 'Composio Google Calendar connected and read successfully; no events found in the trip window.' },
+    { agent: 'Travel Context Agent', status: 'skipped', confidence: 0, notes: 'Demo mode: no user Manyfold connector context was requested.' },
     { agent: 'Timezone Agent', status: 'completed', confidence: 0.99, notes: 'London BST UTC+1, Switzerland CEST UTC+2; no DST change during trip.' },
     { agent: 'Local Discovery Agent', status: 'failed', confidence: 0, notes: 'Task orphaned before terminal output. Orchestrator supplied official-source local discovery.' },
     { agent: 'Itinerary Composer Agent', status: 'timeout', confidence: 0, notes: 'Composer did not return in time; Orchestrator composed the final JSON and HTML locally.' },

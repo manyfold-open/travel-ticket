@@ -78,30 +78,6 @@ const FIELDS = [
     description: 'Peer used to generate custom visual themes.',
     required: true,
   },
-  {
-    key: 'COMPOSIO_API_KEY',
-    label: 'Composio API key',
-    description: 'Project key for guest-scoped connector access.',
-    secret: true,
-  },
-  {
-    key: 'COMPOSIO_GMAIL_AUTH_CONFIG_ID',
-    label: 'Composio Gmail auth config',
-    description: 'Read-only Gmail OAuth configuration ID.',
-    secret: true,
-  },
-  {
-    key: 'COMPOSIO_CALENDAR_AUTH_CONFIG_ID',
-    label: 'Composio Calendar auth config',
-    description: 'Read-only Google Calendar OAuth configuration ID.',
-    secret: true,
-  },
-  {
-    key: 'COMPOSIO_NOTION_AUTH_CONFIG_ID',
-    label: 'Composio Notion auth config',
-    description: 'Read-only Notion OAuth configuration ID.',
-    secret: true,
-  },
 ]
 const FIELD_KEYS = new Set(FIELDS.map((field) => field.key))
 

@@ -1,14 +1,11 @@
 import cityThemePrompt from '../pipeline/prompts/city-theme.txt'
-import { createMfContext } from '../pipeline/agents.mjs'
-import { mcpSession } from '../pipeline/composio.mjs'
+import { createDirectA2AContext, createMfContext } from '../pipeline/agents.mjs'
 import { assembleItinerary } from '../pipeline/trip-core.mjs'
 import {
   runBriefStep,
   runTimezoneStep,
   runDiscoveryStep,
-  runGmailStep,
-  runCalendarStep,
-  runNotionStep,
+  runContextStep,
   runComposerStep,
   runThemeStep,
   runRenderStep,
@@ -20,13 +17,6 @@ function output<T>(claim: TripTaskClaim, task: TripTaskName): T {
   const value = claim.outputs?.[task]
   if (value === undefined) throw new Error(`missing completed task output: ${task}`)
   return value as T
-}
-
-function composioDeps(env: Env, visitorId: string) {
-  return {
-    composioApiKey: env.COMPOSIO_API_KEY,
-    session: () => mcpSession({ userId: visitorId, apiKey: env.COMPOSIO_API_KEY }),
-  }
 }
 
 async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim): Promise<unknown> {
@@ -42,21 +32,23 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
 
   if (taskId === 'timezone') return runTimezoneStep(brief)
   if (taskId === 'discovery') return runDiscoveryStep(createMfContext(env, 'discovery'), brief)
-  if (taskId === 'gmail') {
-    return runGmailStep(createMfContext(env, 'context'), brief, composioDeps(env, params.visitorId))
-  }
-  if (taskId === 'calendar') {
-    return runCalendarStep(createMfContext(env, 'context'), brief, composioDeps(env, params.visitorId))
-  }
-  if (taskId === 'notion') {
-    return runNotionStep(createMfContext(env, 'context'), brief, composioDeps(env, params.visitorId))
+  if (taskId === 'context') {
+    // Private context must come only from the user's supplied External Client.
+    // Skipping the connection must never fall back to the deployment's role peer.
+    const context = claim.agentCredential
+      ? createDirectA2AContext(claim.agentCredential, 'context')
+      : null
+    return runContextStep(context, brief, params.visitorId, params.tripId, params.agentBinding)
   }
 
   const timezoneRes = output<{ timezone: unknown }>(claim, 'timezone')
   const discoveryRes = output<{ discovery: unknown }>(claim, 'discovery')
-  const gmailRes = output<{ context?: { bookings?: unknown[] } }>(claim, 'gmail')
-  const calendarRes = output<{ calendar: unknown }>(claim, 'calendar')
-  const notionRes = output<{ notion?: { travel_notes?: unknown[] } }>(claim, 'notion')
+  const contextRes = output<{ context: {
+    bookings?: unknown[]
+    calendar_events?: unknown[]
+    travel_notes?: unknown[]
+  } }>(claim, 'context')
+  const context = contextRes.context ?? { bookings: [], calendar_events: [], travel_notes: [] }
 
   if (taskId === 'composer') {
     return runComposerStep(createMfContext(env, 'composer'), {
@@ -65,10 +57,10 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
       timezone: timezoneRes.timezone,
       discovery: discoveryRes.discovery,
       context: {
-        ...(gmailRes.context ?? { bookings: [] }),
-        travel_notes: notionRes.notion?.travel_notes ?? [],
+        bookings: context.bookings ?? [],
+        travel_notes: context.travel_notes ?? [],
       },
-      calendar: calendarRes.calendar,
+      calendar: { events: context.calendar_events ?? [] },
       language: params.language,
     })
   }
@@ -94,9 +86,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
       ...((briefRes as { statuses?: unknown[] }).statuses ?? []),
       ...((timezoneRes as { statuses?: unknown[] }).statuses ?? []),
       ...((discoveryRes as { statuses?: unknown[] }).statuses ?? []),
-      ...((gmailRes as { statuses?: unknown[] }).statuses ?? []),
-      ...((calendarRes as { statuses?: unknown[] }).statuses ?? []),
-      ...((notionRes as { statuses?: unknown[] }).statuses ?? []),
+      ...((contextRes as { statuses?: unknown[] }).statuses ?? []),
       ...((composerRes as { statuses?: unknown[] }).statuses ?? []),
     ]
     const itinerary = assembleItinerary({
@@ -106,9 +96,9 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
       timezone: timezoneRes.timezone,
       discovery: discoveryRes.discovery,
       composed: composerRes.composed,
-      contextResult: gmailRes.context,
-      calendarResult: calendarRes.calendar,
-      notionResult: notionRes.notion,
+      contextResult: { bookings: context.bookings ?? [] },
+      calendarResult: { events: context.calendar_events ?? [] },
+      notionResult: { travel_notes: context.travel_notes ?? [] },
       themeName: themeRes.themeName,
       posterResult: null,
       agentStatuses: statuses,

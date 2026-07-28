@@ -3,30 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect accounts · Trip Ticket</title>
+<title>Connect Manyfold · Trip Ticket</title>
 <meta name="theme-color" content="#efe0c3">
+<meta name="description" content="Connect this Travel Ticket to your Manyfold agent before printing.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="/ticket.css">
 <style>
-.cards { display: grid; gap: 14px; margin-top: 22px; }
-.card {
-  padding: 16px 18px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,248,234,.18);
-  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+.agent-panel {
+  margin-top: 26px; padding: 20px; border: 1px solid rgba(255,248,234,.22);
+  background: rgba(255,255,255,.04);
 }
-.card b { display: block; font: 700 15px var(--font-body); color: var(--paper-bright); }
-.card small { display: block; font: 500 12px var(--font-mono); color: var(--paper-ghost); margin-top: 4px; }
-.card .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
-.card[data-s="connected"] .dot { background: var(--signal-ok); }
-.card[data-s="authorization_required"] .dot { background: var(--gold); }
-.card[data-s="configuration_required"] .dot { background: var(--paper-ghost); }
-.card-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.card-btn {
-  font: 900 12px "Archivo",sans-serif; text-transform: uppercase; letter-spacing: .08em;
-  padding: 9px 14px; border: 1px solid var(--line-btn); background: var(--paper-bright); color: var(--ink); cursor: pointer;
-}
-.card-btn:hover:not(:disabled) { border-color: var(--rail); color: var(--rail-press); }
-.card-btn:disabled { color: var(--muted); cursor: not-allowed; }
+.agent-panel h2 { margin: 0; font: 900 18px/1.2 var(--font-display); color: var(--paper-bright); }
+.agent-panel p { margin: 10px 0 0; font-size: 14px; line-height: 1.7; color: var(--paper-dim); }
+.agent-state { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--paper-ghost); font: 600 12px var(--font-mono); }
+.agent-state .dot { flex: none; }
+.agent-state[data-s="connected"] .dot { background: var(--signal-ok); }
+.agent-state[data-s="pending"] .dot { background: var(--gold); }
+.agent-state[data-s="configuration_required"] .dot { background: var(--rail); }
+.agent-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.agent-actions .card-btn, .agent-form .card-btn { font: 900 12px "Archivo",sans-serif; text-transform: uppercase; letter-spacing: .08em; padding: 11px 14px; border: 1px solid var(--line-btn); background: var(--paper-bright); color: var(--ink); cursor: pointer; }
+.agent-actions .card-btn:hover:not(:disabled), .agent-form .card-btn:hover:not(:disabled) { border-color: var(--rail); color: var(--rail-press); }
+.agent-actions .card-btn:disabled, .agent-form .card-btn:disabled { color: var(--muted); cursor: wait; }
+.agent-name { color: var(--paper-bright); font-weight: 700; }
+.agent-form { display: grid; gap: 10px; margin-top: 20px; }
+.agent-form label { color: var(--paper-ghost); font: 700 11px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; }
+.agent-form input { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid var(--line-btn); background: rgba(255,255,255,.92); color: var(--ink); font: 500 13px var(--font-mono); }
+.agent-form input:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
+.agent-form .card-btn { justify-self: start; margin-top: 5px; }
 .done-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; border-top: 1px dashed rgba(255,248,234,.3); padding-top: 18px; }
 .done-row .cta { flex: 1 1 200px; }
 </style>
@@ -40,36 +44,34 @@
     <section class="ticket">
       <div class="ticket-grid">
         <div class="main">
-          <div class="eyebrow">Trip Ticket · Connect Accounts</div>
-          <h1>Connect<br><span>Existing data</span></h1>
-          <p class="hint">Connect Gmail, Calendar or Notion so Composer can reference your existing booking confirmations, calendar events and travel notes. This step is optional and skipping it will not affect your ticket.</p>
-          <div class="cards" id="cards">
-            <div class="card" data-provider="gmail" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Gmail</b><small>Read booking and confirmation emails only</small></div></div>
-              <button type="button" class="card-btn" data-action="gmail">Connect</button>
-            </div>
-            <div class="card" data-provider="calendar" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Google Calendar</b><small>Check existing events in the trip window</small></div></div>
-              <button type="button" class="card-btn" data-action="calendar">Connect</button>
-            </div>
-            <div class="card" data-provider="notion" data-s="pending">
-              <div class="card-left"><span class="dot" aria-hidden="true"></span><div><b>Notion</b><small>Read travel note pages only</small></div></div>
-              <button type="button" class="card-btn" data-action="notion">Connect</button>
-            </div>
-          </div>
+          <div class="eyebrow">Trip Ticket · Connect Agent</div>
+          <h1>Connect<br><span>Your Manyfold</span></h1>
+          <p class="hint">Travel Ticket runs on your Manyfold agent. Your agent keeps ownership of any private account connections.</p>
+          <section class="agent-panel" aria-labelledby="agent-title">
+            <h2 id="agent-title">Connect your Manyfold agent</h2>
+            <p id="agent-copy">Enter the complete A2A endpoint and bearer token from your Manyfold agent's External Client settings. Do not copy the shortened text with an ellipsis.</p>
+            <form id="agent-form" class="agent-form">
+              <label for="rpc-url">A2A RPC URL</label>
+              <input id="rpc-url" name="rpc_url" type="url" placeholder="https://api.manyfold.ai/api/a2a/agents/.../rpc" autocomplete="url" required>
+              <label for="bearer-token">Bearer token</label>
+              <input id="bearer-token" name="bearer_token" type="password" placeholder="Paste the External Client bearer token" autocomplete="off" required>
+              <button type="submit" class="card-btn" id="connect-agent">Save &amp; test connection</button>
+            </form>
+            <div class="agent-state" id="agent-state" data-s="not_connected" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="agent-status">Not connected</span></div>
+          </section>
           <p class="sr-only" id="announce" role="status" aria-live="polite"></p>
           <p class="hint" id="error" style="color:var(--gold)" role="alert"></p>
           <div class="done-row">
-            <button type="button" class="cta" id="start">Start printing · Continue</button>
+            <button type="button" class="cta" id="start" disabled>Start printing · Continue</button>
             <button type="button" class="cta cta-ghost" id="skip">Skip and print · Skip</button>
           </div>
         </div>
         <aside class="stub">
           <div class="stub-title label">Boarding Info</div>
           <ol class="terms">
-            <li>Every connection is read-only. It cannot send emails or change your calendar or notes.</li>
-            <li>Connect opens a new tab for Google or Notion authorisation. Return here when the status changes to connected.</li>
-            <li>Prefer not to connect anything? Skip and print using the sentence you just entered.</li>
+            <li>Your Manyfold agent owns any private connections. Travel Ticket never receives account credentials.</li>
+            <li>This connection is saved for the current trip only. Your Manyfold agent remains the owner of private data.</li>
+            <li>Prefer not to connect? Print using only the sentence you entered.</li>
           </ol>
         </aside>
       </div>
@@ -82,75 +84,72 @@ const params = new URLSearchParams(location.search)
 const pathMatch = location.pathname.match(/^\/trips\/([^/]+)\/connect\/?$/)
 const tripId = pathMatch ? decodeURIComponent(pathMatch[1]) : params.get('trip')
 
-if (!tripId) {
-  $('error').textContent = 'Trip ID not found. Return to the home page and start again.'
+if (!tripId) $('error').textContent = 'Trip ID not found. Return to the home page and start again.'
+
+function announce(text) { $('announce').textContent = text }
+
+function setAgentState(status, agentName = '') {
+  const labels = {
+    not_connected: 'Not connected',
+    pending: 'Testing Manyfold connection...',
+    connected: agentName ? `Connected to ${agentName}` : 'Connected to your Manyfold agent',
+    configuration_required: 'Manyfold agent connection is not configured',
+    error: 'Manyfold connection failed',
+  }
+  $('agent-state').dataset.s = status
+  $('agent-status').innerHTML = status === 'connected' && agentName
+    ? `Connected to <span class="agent-name">${agentName.replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]))}</span>`
+    : labels[status] || labels.error
+  $('start').disabled = status !== 'connected'
+  $('connect-agent').disabled = status === 'pending'
 }
 
-function announce(text) {
-  $('announce').textContent = text
-}
-
-function setCardState(provider, status, message) {
-  const card = document.querySelector(`.card[data-provider="${provider}"]`)
-  card.dataset.s = status
-  const btn = card.querySelector('.card-btn')
-  if (status === 'connected') { btn.textContent = 'Connected'; btn.disabled = true }
-  else if (status === 'configuration_required') { btn.textContent = 'Unavailable'; btn.disabled = true; if (message) card.querySelector('small').textContent = message }
-  else if (status === 'authorization_required') { btn.textContent = 'Awaiting authorisation...'; btn.disabled = false }
-  else { btn.textContent = 'Connect'; btn.disabled = false }
-}
-
-async function checkStatus(provider) {
+async function checkAgentStatus() {
   if (!tripId) return
   try {
-    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}`)
+    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/agent`)
     const body = await res.json()
     if (!res.ok) throw new Error(body.error || String(res.status))
-    setCardState(provider, body.connected ? 'connected' : body.status)
-  } catch { /* leave as-is; user can retry via the button */ }
+    setAgentState(body.status, body.agent_name || '')
+  } catch (error) {
+    setAgentState('error')
+    $('error').textContent = `Could not check Manyfold connection: ${error.message}`
+  }
 }
 
-const pollers = {}
-async function startLink(provider) {
+async function linkAgent(event) {
+  event.preventDefault()
   if (!tripId) return
+  $('error').textContent = ''
+  const rpcUrl = $('rpc-url').value.trim()
+  const bearerToken = $('bearer-token').value.trim()
+  if (!rpcUrl || !bearerToken) {
+    $('error').textContent = 'Enter both the A2A RPC URL and bearer token.'
+    return
+  }
+  setAgentState('pending')
   let res
   try {
-    res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}/link`, { method: 'POST' })
+    res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/agent/link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rpc_url: rpcUrl, bearer_token: bearerToken }),
+    })
   } catch {
+    setAgentState('error')
     $('error').textContent = 'Could not reach the server. Please try again later.'
     return
   }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    $('error').textContent = body.error || `Connection failed (${res.status}).`
+    setAgentState(body.status || 'error')
+    $('error').textContent = body.message || body.error || `Manyfold connection failed (${res.status}).`
     return
   }
-  if (body.status === 'configuration_required') {
-    setCardState(provider, 'configuration_required', body.message)
-    return
-  }
-  if (body.status === 'authorization_required' && body.authorization_url) {
-    setCardState(provider, 'authorization_required')
-    announce(`${provider} authorisation opened in a new tab. This page will update automatically.`)
-    window.open(body.authorization_url, '_blank', 'noopener')
-    if (pollers[provider]) clearInterval(pollers[provider])
-    pollers[provider] = setInterval(async () => {
-      const r = await fetch(`/api/trips/${encodeURIComponent(tripId)}/connectors/${provider}`)
-      const s = await r.json().catch(() => ({}))
-      if (s.connected) {
-        setCardState(provider, 'connected')
-        announce(`${provider} connected`)
-        clearInterval(pollers[provider])
-      }
-    }, 2000)
-  }
+  $('bearer-token').value = ''
+  setAgentState('connected', body.agent_name || '')
+  announce('Manyfold agent connected')
 }
-
-document.querySelectorAll('.card-btn').forEach((btn) => {
-  btn.addEventListener('click', () => startLink(btn.closest('.card').dataset.provider))
-})
-
-;['gmail', 'calendar', 'notion'].forEach(checkStatus)
 
 async function startTrip() {
   if (!tripId) return
@@ -168,8 +167,11 @@ async function startTrip() {
     $('skip').disabled = false
   }
 }
+
+$('agent-form').addEventListener('submit', linkAgent)
 $('start').addEventListener('click', startTrip)
 $('skip').addEventListener('click', startTrip)
+checkAgentStatus()
 </script>
 <script src="/language.js"></script>
 </body>

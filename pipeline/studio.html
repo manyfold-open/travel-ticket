@@ -238,7 +238,7 @@ textarea:focus { outline: 3px solid var(--gold); }
             <p><span class="stamp">How it works</span></p>
             <p>Trip Brief turns your sentence into a structured request; Timezone and Local Discovery work in parallel; Composer builds the itinerary; the renderer prints the cover and daily tickets.</p>
             <p>A live run usually takes 5–8 minutes, with web research taking most of the time. Each agent status is recorded honestly in the handbook.</p>
-            <p>Gmail and Calendar connectors are optional and appear as skipped when unavailable.</p>
+            <p>Private Gmail, Calendar and Notion context is optional and is read through the user&apos;s Manyfold connector agent.</p>
           </div>
           <div class="lasttrip" id="lasttrip"></div>
           <div class="barcode-block" aria-hidden="true"><div class="barcode"></div><div class="serial" translate="no">trip·ticket·studio</div></div>
@@ -248,7 +248,7 @@ textarea:focus { outline: 3px solid var(--gold); }
   </div>
 </main>
 <script>
-const AGENTS = ['Trip Brief Agent','Timezone Agent','Local Discovery Agent','Travel Context Agent','Calendar Agent','Itinerary Composer Agent','Poster Agent']
+const AGENTS = ['Trip Brief Agent','Timezone Agent','Local Discovery Agent','Travel Context Agent','Itinerary Composer Agent','Poster Agent']
 const $ = (id) => document.getElementById(id)
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 let polling = null
