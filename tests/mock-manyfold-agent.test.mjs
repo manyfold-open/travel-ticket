@@ -22,8 +22,15 @@ test('local Manyfold mock carries New York through brief, discovery, and compose
 
   const discovery = agentReply(discoveryPrompt(brief))
   assert.equal(discovery.pois[0].base, 'New York')
+  assert.equal(discovery.pois.length, 4)
+  assert.ok(discovery.pois.every((poi) => poi.source_label === 'Local mock'))
 
   const composed = agentReply(composerPrompt(brief))
+  assert.equal(composed.days.length, 5)
+  assert.deepEqual(composed.days.map((day) => day.date), [
+    '2027-09-10', '2027-09-11', '2027-09-12', '2027-09-13', '2027-09-14',
+  ])
+  assert.ok(composed.days.every((day) => day.base === 'New York'))
   assert.equal(composed.days[0].base, 'New York')
   assert.equal(composed.days[0].items[0].location, 'New York')
   assert.equal(composed.cover.title_top, 'New York')

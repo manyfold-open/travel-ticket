@@ -66,6 +66,16 @@ function addDays(isoDate, days) {
   return date.toISOString().slice(0, 10)
 }
 
+function datesBetween(startDate, endDate) {
+  const dates = []
+  const start = new Date(`${startDate}T00:00:00Z`)
+  const end = new Date(`${endDate}T00:00:00Z`)
+  for (let date = start; date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
+    dates.push(date.toISOString().slice(0, 10))
+  }
+  return dates
+}
+
 function destinationProfile(destination, sentence) {
   const normalized = destination.toLowerCase()
   if (normalized === 'kyoto' || normalized === 'osaka') {
@@ -97,7 +107,14 @@ export function briefForRequest(sentence) {
 
 function discoveryForBrief(brief) {
   const base = brief.bases?.[0]?.name || brief.destination
-  const pois = [{ title: `Mock ${base} walk`, base, kind: 'sight', duration_minutes: 90, best_time: 'morning', notes: 'Fixture POI.', source_label: 'Local mock' }]
+  const labels = ['walk', 'market stop', 'park visit', 'neighbourhood meal']
+  const pois = labels.map((label, index) => ({
+    title: `Mock ${base} ${label}`, base,
+    kind: index === labels.length - 1 ? 'meal' : 'sight',
+    duration_minutes: index === labels.length - 1 ? 90 : 120,
+    best_time: index === 0 ? 'morning' : index === labels.length - 1 ? 'evening' : 'afternoon',
+    notes: 'Fixture POI; local mock does not perform web search.', source_label: 'Local mock',
+  }))
   const transports = brief.bases?.slice(1).map((next, index) => ({
     from: brief.bases[index].name, to: next.name, mode: 'rail', minutes: 30,
     notes: 'Fixture transfer.', source_label: 'Local mock',
@@ -107,9 +124,25 @@ function discoveryForBrief(brief) {
 
 function composerForBrief(brief) {
   const base = brief.bases?.[0]?.name || brief.destination
+  const dates = datesBetween(brief.start_date, brief.end_date)
+  const dayLabels = ['arrival walk', 'market day', 'park day', 'neighbourhood day', 'departure day']
+  const days = dates.map((date, index) => {
+    const label = dayLabels[index] || `day ${index + 1}`
+    const itemType = index === dates.length - 1 ? 'meal' : 'sight'
+    return {
+      date, title: `${base} ${label}`, base,
+      items: [{
+        variant: 'both', type: itemType, title: `Mock ${base} ${label}`,
+        start_local: index === dates.length - 1 ? '18:00' : '10:00',
+        end_local: index === dates.length - 1 ? '19:30' : '12:00',
+        location: base, transport_minutes: 0,
+        notes: 'Fixture itinerary; local mock does not perform web search.', sources: ['Local mock'],
+      }],
+    }
+  })
   return {
     summary: `A local mock itinerary for ${brief.destination}.`, warnings: [],
-    days: [{ date: brief.start_date, title: `${base} arrival`, base, items: [{ variant: 'both', type: 'sight', title: `Mock ${base} walk`, start_local: '10:00', end_local: '11:30', location: base, transport_minutes: 0, notes: 'Fixture itinerary.', sources: ['Local mock'] }] }],
+    days,
     alternatives: { relaxed: { notes: 'Keep the morning light.' }, full: { notes: 'Add one local market.' } },
     actions_suggested: [], cover: { title_top: brief.destination.split(':')[0].trim(), title_accent: 'by Rail', eyebrow: 'Local Manyfold test' },
   }
