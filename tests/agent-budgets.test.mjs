@@ -50,8 +50,6 @@ test('createMfContext carries the role budget the supervisor sizes against', () 
   assert.equal(createMfContext(ENV, 'discovery').timeoutMs, agentCallBudgetMs('Local Discovery Agent'))
   assert.equal(createMfContext(ENV, 'composer').timeoutMs, agentCallBudgetMs('Itinerary Composer Agent'))
   assert.equal(createMfContext(ENV, 'theme').timeoutMs, agentCallBudgetMs('Theme Designer Agent'))
-  // gmail/calendar/notion all run on the context peer under equal budgets.
+  // All private connectors run through the single context peer.
   assert.equal(createMfContext(ENV, 'context').timeoutMs, agentCallBudgetMs('Travel Context Agent'))
-  assert.equal(agentBudgetMs('Calendar Agent'), agentBudgetMs('Travel Context Agent'))
-  assert.equal(agentBudgetMs('Notion Agent'), agentBudgetMs('Travel Context Agent'))
 })

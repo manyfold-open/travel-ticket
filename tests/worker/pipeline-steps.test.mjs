@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  runBriefStep, runTimezoneStep, runDiscoveryStep, runGmailStep, runCalendarStep,
-  runNotionStep, runComposerStep, runThemeStep, runRenderStep,
+  runBriefStep, runTimezoneStep, runDiscoveryStep, runContextStep,
+  runComposerStep, runThemeStep, runRenderStep,
 } from '../../worker/pipeline-steps.mjs'
 
 // A ctx whose LLM calls always fail — exercises every stage's honest-fallback
@@ -86,16 +86,12 @@ test('runDiscoveryStep: falls back to empty discovery when the agent fails', asy
   assert.deepEqual(discovery, { pois: [], transports: [], sources: [] })
 })
 
-test('runGmailStep/runCalendarStep/runNotionStep: honestly skip with no Composio key configured', async () => {
-  const gmail = await runGmailStep(brokenCtx, BRIEF, {})
-  const calendar = await runCalendarStep(brokenCtx, BRIEF, {})
-  const notion = await runNotionStep(brokenCtx, BRIEF, {})
-  assert.equal(gmail.statuses[0].status, 'skipped')
-  assert.deepEqual(gmail.context.bookings, [])
-  assert.equal(calendar.statuses[0].status, 'skipped')
-  assert.deepEqual(calendar.calendar.events, [])
-  assert.equal(notion.statuses[0].status, 'skipped')
-  assert.deepEqual(notion.notion.travel_notes, [])
+test('runContextStep: honestly skips when the Manyfold connector agent is unavailable', async () => {
+  const context = await runContextStep(brokenCtx, BRIEF, 'visitor_test', 'trip_test')
+  assert.equal(context.statuses[0].status, 'failed')
+  assert.deepEqual(context.context.bookings, [])
+  assert.deepEqual(context.context.calendar_events, [])
+  assert.deepEqual(context.context.travel_notes, [])
 })
 
 test('runComposerStep: falls back to localCompose plus a fallback status entry when the agent fails', async () => {

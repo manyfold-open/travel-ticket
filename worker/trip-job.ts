@@ -1,13 +1,11 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { Env, TripJobParams } from './env.d.ts'
+import type { Env, TripAgentBinding, TripAgentCredential, TripJobParams } from './env.d.ts'
 
 export type TripTaskName =
   | 'brief'
   | 'timezone'
   | 'discovery'
-  | 'gmail'
-  | 'calendar'
-  | 'notion'
+  | 'context'
   | 'composer'
   | 'theme'
   | 'render'
@@ -40,6 +38,8 @@ interface TripJobState {
   completedAt?: number
   error?: string
   manifest?: { slug: string; status: string; page_count: number }
+  agentBinding?: TripAgentBinding
+  agentCredential?: TripAgentCredential
 }
 
 export interface TripTaskClaim {
@@ -48,6 +48,7 @@ export interface TripTaskClaim {
   retryAfterSeconds?: number
   params?: TripJobParams
   outputs?: Partial<Record<TripTaskName, unknown>>
+  agentCredential?: TripAgentCredential
 }
 
 interface TripTaskFailure {
@@ -65,9 +66,7 @@ const TASKS: TripTaskName[] = [
   'brief',
   'timezone',
   'discovery',
-  'gmail',
-  'calendar',
-  'notion',
+  'context',
   'composer',
   'theme',
   'render',
@@ -77,21 +76,17 @@ const DEPENDENCIES: Record<TripTaskName, TripTaskName[]> = {
   brief: [],
   timezone: ['brief'],
   discovery: ['brief', 'timezone'],
-  gmail: ['brief', 'timezone'],
-  calendar: ['brief', 'timezone'],
-  notion: ['brief', 'timezone'],
-  composer: ['brief', 'timezone', 'discovery', 'gmail', 'calendar', 'notion'],
+  context: ['brief', 'timezone'],
+  composer: ['brief', 'timezone', 'discovery', 'context'],
   theme: ['brief', 'composer'],
-  render: ['brief', 'timezone', 'discovery', 'gmail', 'calendar', 'notion', 'composer', 'theme'],
+  render: ['brief', 'timezone', 'discovery', 'context', 'composer', 'theme'],
 }
 
 const DISPLAY_NAMES: Partial<Record<TripTaskName, string>> = {
   brief: 'Trip Brief Agent',
   timezone: 'Timezone Agent',
   discovery: 'Local Discovery Agent',
-  gmail: 'Travel Context Agent',
-  calendar: 'Calendar Agent',
-  notion: 'Notion Agent',
+  context: 'Travel Context Agent',
   composer: 'Itinerary Composer Agent',
   theme: 'Theme Designer Agent',
 }
@@ -138,6 +133,33 @@ export class TripJob extends DurableObject<Env> {
     return this.readState()?.params.visitorId ?? null
   }
 
+  async connectDirectAgent(rpcUrl: string, token: string, agentName?: string): Promise<Record<string, unknown> | null> {
+    const state = this.readState()
+    if (!state || state.phase !== 'draft') return state ? this.snapshot(state) : null
+    state.agentBinding = {
+      status: 'connected',
+      mode: 'direct',
+      ...(agentName ? { agentName } : {}),
+      connectedAt: new Date().toISOString(),
+    }
+    state.agentCredential = { rpcUrl, token }
+    state.params.agentBinding = {
+      mode: 'direct',
+      ...(agentName ? { agentName } : {}),
+    }
+    state.updatedAt = Date.now()
+    this.writeState(state)
+    return this.snapshot(state)
+  }
+
+  async getAgentBinding(): Promise<TripAgentBinding | null> {
+    return this.readState()?.agentBinding ?? null
+  }
+
+  async getAgentCredential(): Promise<TripAgentCredential | null> {
+    return this.readState()?.agentCredential ?? null
+  }
+
   async claim(taskId: TripTaskName): Promise<TripTaskClaim> {
     const state = this.readState()
     if (!state || !state.tasks[taskId]) return { status: 'missing' }
@@ -182,6 +204,7 @@ export class TripJob extends DurableObject<Env> {
       leaseId,
       params: state.params,
       outputs: this.outputs(state),
+      ...(taskId === 'context' && state.agentCredential ? { agentCredential: state.agentCredential } : {}),
     }
   }
 
@@ -439,6 +462,12 @@ export class TripJob extends DurableObject<Env> {
         ? { slug: state.manifest.slug, status: state.manifest.status }
         : null,
       error: state.error ?? null,
+      ...(state.agentBinding ? { agent_binding: {
+        status: state.agentBinding.status,
+        ...(state.agentBinding.mode ? { mode: state.agentBinding.mode } : {}),
+        ...(state.agentBinding.agentName ? { agent_name: state.agentBinding.agentName } : {}),
+        ...(state.agentBinding.connectedAt ? { connected_at: state.agentBinding.connectedAt } : {}),
+      } } : {}),
       ...(state.manifest ? { page_count: state.manifest.page_count } : {}),
       updated_at: new Date(state.updatedAt).toISOString(),
     }

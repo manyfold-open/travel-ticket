@@ -1,196 +1,166 @@
-import { composioEnabled, mcpSession } from '../composio.mjs'
 import { runStructuredJson } from './runtime.mjs'
 
-const BOOKINGS_SCHEMA = {
+export const CONNECTOR_NAMES = ['gmail', 'calendar', 'notion']
+
+const PROVIDER_STATUS = ['connected', 'authorization_required', 'not_connected', 'configuration_required', 'error']
+
+const PROVIDER_SCHEMA = {
   type: 'object',
   properties: {
-    bookings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          type: { type: 'string', enum: ['flight', 'hotel', 'train', 'car', 'activity'] },
-          vendor: { type: 'string' },
-          confirmation_no: { type: 'string' },
-          start: { type: 'string' },
-          end: { type: 'string' },
-          location: { type: 'string' },
-          pax: { type: 'integer' },
-        },
-        required: ['type', 'vendor'],
-      },
-    },
+    status: { type: 'string', enum: PROVIDER_STATUS },
+    message: { type: 'string' },
+    authorization_url: { type: 'string' },
   },
-  required: ['bookings'],
+  required: ['status', 'message', 'authorization_url'],
+  additionalProperties: false,
+}
+
+const BOOKINGS_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      type: { type: 'string' },
+      vendor: { type: 'string' },
+      confirmation_no: { type: 'string' },
+      start: { type: 'string' },
+      end: { type: 'string' },
+      location: { type: 'string' },
+      pax: { type: 'integer' },
+    },
+    required: ['type', 'vendor', 'confirmation_no', 'start', 'end', 'location', 'pax'],
+    additionalProperties: false,
+  },
+}
+
+const CALENDAR_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      start: { type: 'string' },
+      end: { type: 'string' },
+      all_day: { type: 'boolean' },
+      location: { type: 'string' },
+      description: { type: 'string' },
+    },
+    required: ['title', 'start', 'end', 'all_day', 'location', 'description'],
+    additionalProperties: false,
+  },
 }
 
 const NOTES_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      note: { type: 'string' },
+      location: { type: 'string' },
+      url: { type: 'string' },
+      category: { type: 'string' },
+    },
+    required: ['title', 'note', 'location', 'url', 'category'],
+    additionalProperties: false,
+  },
+}
+
+export const CONNECTOR_AGENT_SCHEMA = {
   type: 'object',
   properties: {
-    travel_notes: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          note: { type: 'string' },
-          location: { type: 'string' },
-          url: { type: 'string' },
-          category: { type: 'string' },
-        },
-        required: ['title'],
-      },
+    status: { type: 'string', enum: ['ok', 'skipped', 'error'] },
+    message: { type: 'string' },
+    providers: {
+      type: 'object',
+      properties: Object.fromEntries(CONNECTOR_NAMES.map(name => [name, PROVIDER_SCHEMA])),
+      required: CONNECTOR_NAMES,
+      additionalProperties: false,
     },
+    bookings: BOOKINGS_SCHEMA,
+    calendar_events: CALENDAR_SCHEMA,
+    travel_notes: NOTES_SCHEMA,
   },
-  required: ['travel_notes'],
+  required: ['status', 'message', 'providers', 'bookings', 'calendar_events', 'travel_notes'],
+  additionalProperties: false,
 }
 
-const BOOKING_EXTRACTION_SYSTEM = 'You extract travel bookings from emails. Only extract fields literally present in the text; leave missing fields as empty string / omit. NEVER invent vendors, confirmation numbers or dates. If no real bookings, return {"bookings":[]}.'
+const SYSTEM = [
+  'You are the Connector Context Agent for Travel Ticket.',
+  'You own the user\'s Gmail, Google Calendar, and Notion connections through the Manyfold Connector layer.',
+  'The Travel Ticket service does not have Composio credentials and must never be asked to provide them.',
+  'Use your own configured connector tools when the requested operation needs private data.',
+  'For link, create or return the provider authorization URL through your own connector layer.',
+  'For fetch_context, return only data from the user\'s connected accounts. Never invent bookings, events, notes, or credentials.',
+  'If a provider is not connected, return its status and empty output for that provider.',
+  'Always return one JSON object that validates against the supplied schema. Use empty strings for unavailable optional text fields.',
+].join(' ')
 
-export async function runTravelContextAgent(ctx, brief, deps = {}) {
-  if (!composioEnabled(deps.composioApiKey)) {
-    return { status: 'skipped', confidence: 0, notes: 'COMPOSIO_API_KEY not set; booking emails were not checked.', bookings: [] }
-  }
-  try {
-    const session = await (deps.session ? deps.session() : mcpSession({ apiKey: deps.composioApiKey }))
-    const destination = String(brief?.destination || '').split(/[:,&，、]/)[0].trim()
-    const query = `(booking OR reservation OR confirmation OR itinerary OR e-ticket OR 訂位 OR 訂房 OR 確認) ${destination} newer_than:180d`
-    const list = await session.execToolkitTool('GMAIL_FETCH_EMAILS', {
-      query,
-      max_results: 20,
-      verbose: false,
-      include_payload: false,
-    })
-    const messages = (list?.messages ?? []).filter(message => message?.messageId)
-    if (!messages.length) {
-      return { status: 'ok', confidence: 0.6, notes: 'No booking-looking emails found in the last 180 days.', bookings: [] }
-    }
+const emptyProvider = () => ({ status: 'not_connected', message: '', authorization_url: '' })
 
-    const bodies = []
-    for (const message of messages.slice(0, 10)) {
-      try {
-        const full = await session.execToolkitTool('GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID', {
-          message_id: message.messageId,
-          format: 'full',
-        })
-        const text = full?.messageText ?? full?.snippet ?? JSON.stringify(full).slice(0, 2000)
-        bodies.push(`--- EMAIL (subject: ${full?.subject ?? message.subject ?? ''}) ---\n${String(text).slice(0, 4000)}`)
-      } catch {
-        // One unreadable message should not discard the remaining context.
-      }
-    }
-    if (!bodies.length) {
-      return { status: 'ok', confidence: 0.5, notes: 'Emails found but none could be fetched in full.', bookings: [] }
-    }
-
-    const llm = deps.llm ?? (request => runStructuredJson(ctx, request))
-    const request = {
-      system: BOOKING_EXTRACTION_SYSTEM,
-      prompt: `Trip: ${brief.destination}, ${brief.start_date}→${brief.end_date}.\n\n${bodies.join('\n\n')}`,
-      schema: BOOKINGS_SCHEMA,
-    }
-    const extracted = await retryStructuredCall(llm, request)
-    const bookings = Array.isArray(extracted?.bookings) ? extracted.bookings : []
-    return {
-      status: 'ok',
-      confidence: bookings.length ? 0.75 : 0.6,
-      notes: `Checked ${bodies.length} emails; extracted ${bookings.length} booking(s).`,
-      bookings,
-    }
-  } catch (error) {
-    return { status: 'skipped', confidence: 0, notes: `Gmail check skipped: ${error.message}`, bookings: [] }
+function normalizeProvider(value) {
+  if (!value || typeof value !== 'object') return emptyProvider()
+  return {
+    status: PROVIDER_STATUS.includes(value.status) ? value.status : 'error',
+    message: typeof value.message === 'string' ? value.message : '',
+    authorization_url: typeof value.authorization_url === 'string' ? value.authorization_url : '',
   }
 }
 
-export async function runCalendarAgent(_ctx, brief, deps = {}) {
-  if (!composioEnabled(deps.composioApiKey)) {
-    return { status: 'skipped', confidence: 0, notes: 'COMPOSIO_API_KEY not set; fixed events were not checked.', events: [] }
-  }
-  try {
-    const session = await (deps.session ? deps.session() : mcpSession({ apiKey: deps.composioApiKey }))
-    const data = await session.execToolkitTool('GOOGLECALENDAR_EVENTS_LIST', {
-      calendarId: 'primary',
-      timeMin: `${brief.start_date}T00:00:00Z`,
-      timeMax: `${brief.end_date}T23:59:59Z`,
-      singleEvents: true,
-      orderBy: 'startTime',
-      maxResults: 50,
-    })
-    const items = data?.items ?? data?.events ?? []
-    const events = items.map(event => ({
-      title: event.summary ?? '(untitled)',
-      start: event.start?.dateTime ?? event.start?.date ?? '',
-      end: event.end?.dateTime ?? event.end?.date ?? '',
-      all_day: Boolean(event.start?.date && !event.start?.dateTime),
-    }))
-    return {
-      status: 'ok',
-      confidence: 0.9,
-      notes: `Found ${events.length} calendar event(s) inside the trip window.`,
-      events,
-    }
-  } catch (error) {
-    return { status: 'skipped', confidence: 0, notes: `Calendar check skipped: ${error.message}`, events: [] }
+function normalizeResult(value) {
+  const providers = Object.fromEntries(CONNECTOR_NAMES.map(name => [name, normalizeProvider(value?.providers?.[name])]))
+  return {
+    status: value?.status === 'ok' || value?.status === 'skipped' || value?.status === 'error' ? value.status : 'error',
+    message: typeof value?.message === 'string' ? value.message : '',
+    providers,
+    bookings: Array.isArray(value?.bookings) ? value.bookings : [],
+    calendar_events: Array.isArray(value?.calendar_events) ? value.calendar_events : [],
+    travel_notes: Array.isArray(value?.travel_notes) ? value.travel_notes : [],
   }
 }
 
-export async function runNotionAgent(ctx, brief, deps = {}) {
-  if (!composioEnabled(deps.composioApiKey)) {
-    return { status: 'skipped', confidence: 0, notes: 'COMPOSIO_API_KEY not set; Notion notes were not checked.', travel_notes: [] }
-  }
-  try {
-    const session = await (deps.session ? deps.session() : mcpSession({ apiKey: deps.composioApiKey }))
-    const destination = String(brief?.destination || '').split(/[:,&，、]/)[0].trim()
-    const found = await session.execToolkitTool('NOTION_SEARCH_NOTION_PAGE', {
-      query: destination,
-      page_size: 5,
-      filter_value: 'page',
-    })
-    const pages = (found?.results ?? []).filter(page => page?.id)
-    if (!pages.length) {
-      return { status: 'ok', confidence: 0.6, notes: 'No Notion pages matched the destination.', travel_notes: [] }
-    }
+function requestText({ action, provider, visitorId, tripId, brief, providers, agentBinding }) {
+  const subject = `travel-ticket:${visitorId}`
+  return [
+    `Operation: ${action}`,
+    `External user subject: ${subject}`,
+    `Trip id: ${tripId || ''}`,
+    `Host Manyfold agent: ${agentBinding?.agentId || 'not-bound'}`,
+    `Host Manyfold agent name: ${agentBinding?.agentName || ''}`,
+    `Provider: ${provider || 'all'}`,
+    `Requested providers: ${(providers ?? CONNECTOR_NAMES).join(', ')}`,
+    `Trip brief: ${JSON.stringify(brief ?? {})}`,
+    'Use the host Manyfold agent as the owner of connector access. Treat the external user subject only as a legacy correlation value. Do not expose provider credentials or raw secrets in the response.',
+  ].join('\n')
+}
 
-    const markdownPages = []
-    for (const page of pages.slice(0, 3)) {
-      try {
-        const markdown = await session.execToolkitTool('NOTION_GET_PAGE_MARKDOWN', { page_id: page.id })
-        markdownPages.push(`--- PAGE: ${page.title ?? page.id} ---\n${String(markdown?.markdown ?? '').slice(0, 6000)}`)
-      } catch {
-        // One unreadable page should not discard the remaining context.
-      }
-    }
-    if (!markdownPages.length) {
-      return { status: 'ok', confidence: 0.5, notes: 'Notion pages found but none readable.', travel_notes: [] }
-    }
+export async function runConnectorAgent(ctx, request) {
+  if (!ctx) throw new Error('Manyfold context agent is not configured')
+  const result = await runStructuredJson(ctx, {
+    system: SYSTEM,
+    prompt: requestText(request),
+    schema: CONNECTOR_AGENT_SCHEMA,
+  })
+  return normalizeResult(result)
+}
 
-    const llm = deps.llm ?? (request => runStructuredJson(ctx, request))
-    const request = {
-      system: 'You extract travel-relevant notes (POIs, restaurants, bookings, checklists) from the user\'s own Notion pages. Only extract what is literally present; never invent. Empty array if nothing relevant.',
-      prompt: `Trip: ${brief.destination}, ${brief.start_date}→${brief.end_date}.\n\n${markdownPages.join('\n\n')}`,
-      schema: NOTES_SCHEMA,
-    }
-    const extracted = await retryStructuredCall(llm, request)
-    const travelNotes = Array.isArray(extracted?.travel_notes) ? extracted.travel_notes : []
-    return {
-      status: 'ok',
-      confidence: travelNotes.length ? 0.7 : 0.6,
-      notes: `Read ${markdownPages.length} Notion page(s); extracted ${travelNotes.length} note(s).`,
-      travel_notes: travelNotes,
-    }
-  } catch (error) {
-    return { status: 'skipped', confidence: 0, notes: `Notion check skipped: ${error.message}`, travel_notes: [] }
+export function providerResult(result, provider) {
+  const item = result?.providers?.[provider] ?? emptyProvider()
+  return {
+    connected: item.status === 'connected',
+    status: item.status,
+    message: item.message,
+    ...(item.authorization_url ? { authorization_url: item.authorization_url } : {}),
   }
 }
 
-async function retryStructuredCall(llm, request) {
-  try {
-    return await llm(request)
-  } catch {
-    try {
-      return await llm(request)
-    } catch {
-      return null
-    }
+export function emptyConnectorContext(message = '') {
+  return {
+    status: 'skipped',
+    message,
+    providers: Object.fromEntries(CONNECTOR_NAMES.map(name => [name, emptyProvider()])),
+    bookings: [],
+    calendar_events: [],
+    travel_notes: [],
   }
 }

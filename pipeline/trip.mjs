@@ -12,14 +12,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { runTimezoneAgent } from './agents.mjs'
+import { emptyConnectorContext, runTimezoneAgent } from './agents.mjs'
 import {
   createLocalContext as createContext,
   runTripBriefAgent,
   runLocalDiscoveryAgent,
-  runTravelContextAgent,
-  runCalendarAgent,
-  runNotionAgent,
+  runConnectorAgent,
+  createLocalConnectorContext,
   runComposerAgent,
   runPosterAgent,
   runStructuredJson,
@@ -121,13 +120,16 @@ export async function planTrip(sentence, { mock = false, backend, language = 'en
 
   // Stage 2 — parallel context gathering
   const timezoneRun = await supervise('Timezone Agent', async () => runTimezoneAgent(brief), { confidence: 0.99 })
-  const [discoveryRun, contextRun, calendarRun, notionRun] = await Promise.all([
+  const connectorCtx = mock ? null : createLocalConnectorContext()
+  const [discoveryRun, contextRun] = await Promise.all([
     mock
       ? (recordStatus('Local Discovery Agent', 'completed', 1, 'Mock discovery.'), log('Local Discovery Agent: completed (mock)'), Promise.resolve({ ok: true, result: normalLanguage === 'zh-CN' ? MOCK_DISCOVERY_ZH : MOCK_DISCOVERY }))
       : supervise('Local Discovery Agent', () => runLocalDiscoveryAgent(ctx, brief), { confidence: 0.8 }),
-    supervise('Travel Context Agent', () => runTravelContextAgent(ctx, brief)),
-    supervise('Calendar Agent', () => runCalendarAgent(ctx, brief)),
-    supervise('Notion Agent', () => runNotionAgent(ctx, brief)),
+    connectorCtx
+      ? supervise('Travel Context Agent', () => runConnectorAgent(connectorCtx, {
+        action: 'fetch_context', visitorId: process.env.TRIP_CONNECTOR_USER_ID || 'local-trip-user', tripId, brief,
+      }))
+      : (recordStatus('Travel Context Agent', 'skipped', 0, 'Manyfold connector agent is not configured.'), Promise.resolve({ ok: true, result: emptyConnectorContext('Manyfold connector agent is not configured.') })),
   ])
 
   const timezone = timezoneRun.ok ? timezoneRun.result : runTimezoneAgent({ ...brief, destination_timezone: 'UTC', home_timezone: 'UTC' })
@@ -142,8 +144,8 @@ export async function planTrip(sentence, { mock = false, backend, language = 'en
   } else {
     const composerRun = await supervise('Itinerary Composer Agent', () => runComposerAgent(ctx, {
       sentence, brief, timezone, discovery,
-      context: { ...(contextRun.result ?? { bookings: [] }), travel_notes: notionRun.result?.travel_notes ?? [] },
-      calendar: calendarRun.result,
+      context: { bookings: contextRun.result?.bookings ?? [], travel_notes: contextRun.result?.travel_notes ?? [] },
+      calendar: { events: contextRun.result?.calendar_events ?? [] },
       language: normalLanguage,
     }), { confidence: 0.85 })
     if (composerRun.ok) {
@@ -168,7 +170,9 @@ export async function planTrip(sentence, { mock = false, backend, language = 'en
   return {
     plan: {
       tripId, sentence, mock, language: normalLanguage, brief, timezone, discovery, composed,
-      contextResult: contextRun.result, calendarResult: calendarRun.result, notionResult: notionRun.result,
+      contextResult: { bookings: contextRun.result?.bookings ?? [] },
+      calendarResult: { events: contextRun.result?.calendar_events ?? [] },
+      notionResult: { travel_notes: contextRun.result?.travel_notes ?? [] },
       agentStatuses,
     },
     designOptions,

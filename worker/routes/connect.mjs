@@ -1,71 +1,84 @@
-// Trip-scoped HTTP wrappers around Composio's per-visitor connector helpers.
-// The trip owns the visitor identity; clients use an HttpOnly visitor cookie
-// instead of carrying visitor_id in every URL. Legacy query IDs are accepted
-// only to migrate an existing browser into the cookie-backed session.
-import { createConnectorLink, connectorStatus, connectorNames } from '../../pipeline/composio.mjs'
+// Trip-scoped wrappers around the user's Manyfold connector agent. Travel Ticket
+// never receives Composio credentials and never creates a provider connection.
+import { CONNECTOR_NAMES } from '../../pipeline/agents.mjs'
 import { jsonResponse } from '../http.mjs'
 import { resolveTripVisitorSession, sameOriginRequest } from '../trip-session.mjs'
 import { withVisitorSession } from '../visitor-session.mjs'
 
-const AUTH_CONFIG_ENV_KEY = {
-  gmail: 'COMPOSIO_GMAIL_AUTH_CONFIG_ID',
-  calendar: 'COMPOSIO_CALENDAR_AUTH_CONFIG_ID',
-  notion: 'COMPOSIO_NOTION_AUTH_CONFIG_ID',
+function defaultProviderReadiness() {
+  return Object.fromEntries(CONNECTOR_NAMES.map(provider => [provider, { status: 'not_connected', message: '' }]))
 }
 
 function providerError(provider) {
-  return connectorNames().includes(provider) ? null : `unknown connector: ${provider}`
+  return CONNECTOR_NAMES.includes(provider) ? null : `unknown connector: ${provider}`
 }
 
-async function statusFor(env, provider, visitorId, deps) {
-  const result = await connectorStatus({
-    visitorId,
-    connector: provider,
-    apiKey: env.COMPOSIO_API_KEY,
-    client: deps.client,
-  })
-  return { connected: result.status === 'connected', status: result.status }
+function unavailable(provider, message = 'Connect your Manyfold agent first.') {
+  return {
+    connected: false,
+    status: 'configuration_required',
+    message,
+    provider,
+  }
 }
 
-export async function handleTripConnectorLink(request, env, tripId, provider, deps = {}) {
+async function bindingFor(env, tripId) {
+  const job = env.TRIP_JOBS.get(env.TRIP_JOBS.idFromName(tripId))
+  return typeof job.getAgentBinding === 'function' ? job.getAgentBinding() : null
+}
+
+function providerStatus(binding, provider) {
+  const item = binding?.providers?.[provider]
+  return item
+    ? { connected: item.status === 'connected', status: item.status, message: item.message, provider }
+    : unavailable(provider)
+}
+
+export async function handleTripConnectorLink(request, env, tripId, provider) {
   if (!sameOriginRequest(request)) return jsonResponse({ error: 'cross-site request rejected' }, 403)
   const error = providerError(provider)
   if (error) return jsonResponse({ error }, 400)
   const visitor = await resolveTripVisitorSession(request, env, tripId)
   if (visitor.response) return visitor.response
 
-  const result = await createConnectorLink({
-    visitorId: visitor.visitorId,
-    connector: provider,
-    apiKey: env.COMPOSIO_API_KEY,
-    authConfigId: env[AUTH_CONFIG_ENV_KEY[provider]],
-    client: deps.client,
-  })
+  const binding = await bindingFor(env, tripId)
+  const result = binding?.status === 'connected'
+    ? {
+      ...providerStatus(binding, provider),
+      connected: false,
+      status: 'authorization_required',
+      message: 'Provider setup is owned by Manyfold. Reopen the Manyfold install page to change it.',
+      setup_in_manyfold: true,
+    }
+    : unavailable(provider)
   return withVisitorSession(jsonResponse(result, 200), visitor.setCookie)
 }
 
-export async function handleTripConnectorStatus(request, env, tripId, provider, deps = {}) {
+export async function handleTripConnectorStatus(request, env, tripId, provider) {
   const error = providerError(provider)
   if (error) return jsonResponse({ error }, 400)
   const visitor = await resolveTripVisitorSession(request, env, tripId)
   if (visitor.response) return visitor.response
 
-  const result = await statusFor(env, provider, visitor.visitorId, deps)
-  return withVisitorSession(jsonResponse(result, 200), visitor.setCookie)
+  const result = providerStatus(await bindingFor(env, tripId), provider)
+  return withVisitorSession(jsonResponse(result, result.status === 'error' ? 502 : 200), visitor.setCookie)
 }
 
-export async function handleTripConnectorsStatus(request, env, tripId, deps = {}) {
+export async function handleTripConnectorsStatus(request, env, tripId) {
   const visitor = await resolveTripVisitorSession(request, env, tripId)
   if (visitor.response) return visitor.response
-
-  const entries = await Promise.all(
-    connectorNames().map(async provider => [
-      provider,
-      await statusFor(env, provider, visitor.visitorId, deps),
-    ]),
-  )
+  const binding = await bindingFor(env, tripId)
+  const readiness = binding?.providers ?? defaultProviderReadiness()
   return withVisitorSession(
-    jsonResponse({ connectors: Object.fromEntries(entries) }, 200),
+    jsonResponse({
+      agent: binding?.status === 'connected' ? 'connected' : 'not_connected',
+      agent_name: binding?.agentName,
+      connectors: Object.fromEntries(CONNECTOR_NAMES.map(provider => [provider, {
+        ...readiness[provider],
+        connected: readiness[provider].status === 'connected',
+        provider,
+      }])),
+    }, 200),
     visitor.setCookie,
   )
 }

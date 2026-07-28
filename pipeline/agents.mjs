@@ -9,6 +9,7 @@ export {
   MODEL,
   createContext,
   createMfContext,
+  createDirectA2AContext,
   runStructuredJson,
 } from './agents/runtime.mjs'
 export {
@@ -25,8 +26,10 @@ export {
   runTripBriefAgent,
 } from './agents/trip.mjs'
 export {
-  runCalendarAgent,
-  runNotionAgent,
-  runTravelContextAgent,
+  CONNECTOR_NAMES,
+  CONNECTOR_AGENT_SCHEMA,
+  emptyConnectorContext,
+  providerResult,
+  runConnectorAgent,
 } from './agents/connectors.mjs'
 export { posterPrompt } from './agents/poster.mjs'

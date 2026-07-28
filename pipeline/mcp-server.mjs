@@ -5,7 +5,6 @@
 import readline from 'node:readline'
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ITINERARY_SCHEMA, ITINERARY_EXAMPLE, normalizeItinerary } from './itinerary-schema.mjs'
 import { runTimezoneAgent } from './timezone.mjs'
@@ -13,20 +12,10 @@ import { renderItinerary } from './render-local.mjs'
 import { THEMES, DEFAULT_TOKENS, resolveTheme } from './themes.mjs'
 import { checkTokens, validateOverrides } from './contrast.mjs'
 import { CUSTOM_ALLOWED_KEYS } from './customTheme.mjs'
-import {
-  connectorNames, connectorStatus, createConnectorLink,
-  fetchGmailContext, fetchCalendarContext, fetchNotionContext,
-} from './composio.mjs'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tripsDataDir = path.join(packageRoot, 'data', 'trips')
 const dateSchema = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
-const visitorSchema = { type: 'string', pattern: '^[A-Za-z0-9_-]{8,128}$', description: 'Stable visitor identifier returned by create_visitor_id; store it in your own client/session.' }
-
-const connectorInput = {
-  type: 'object', properties: { visitor_id: visitorSchema, connector: { type: 'string', enum: connectorNames() } }, required: ['visitor_id', 'connector'],
-}
-
 const safeMotifs = (motifs) => Object.fromEntries(
   ['stampText', 'eyebrow'].filter((key) => typeof motifs?.[key] === 'string').map((key) => [key, motifs[key]]),
 )
@@ -92,54 +81,6 @@ const TOOLS = [
       },
     },
     handler: async (args) => ({ destination: args.destination, dates: `${args.start_date} to ${args.end_date}`, timezone: runTimezoneAgent(args) }),
-  },
-  {
-    def: {
-      name: 'create_visitor_id',
-      description: 'Create a random stable visitor identifier for Composio connections. Save and reuse it in your own MCP client/session; the server cannot read client cookies over stdio.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    handler: async () => ({ visitor_id: `tt_${crypto.randomUUID().replace(/-/g, '')}`, message: 'Store this value and use the same visitor_id for every connector tool.' }),
-  },
-  {
-    def: {
-      name: 'create_connector_link',
-      description: 'Create a Composio OAuth Connect Link for this visitor and one connector. Open authorization_url in a browser, approve the provider consent screen, then reuse the same visitor_id when fetching context. No shared account fallback exists.',
-      inputSchema: connectorInput,
-    },
-    handler: async ({ visitor_id: visitorId, connector }) => createConnectorLink({ visitorId, connector }),
-  },
-  {
-    def: {
-      name: 'get_connector_status',
-      description: 'Report whether this visitor has an active private Composio connection for Gmail, Google Calendar, or Notion.',
-      inputSchema: connectorInput,
-    },
-    handler: async ({ visitor_id: visitorId, connector }) => connectorStatus({ visitorId, connector }),
-  },
-  {
-    def: {
-      name: 'fetch_gmail_context',
-      description: 'Return booking-looking Gmail messages for this visitor as raw source data. It never summarizes or infers bookings with an LLM; Gmail must be connected first.',
-      inputSchema: { type: 'object', properties: { visitor_id: visitorSchema, destination: { type: 'string' }, start_date: dateSchema, end_date: dateSchema }, required: ['visitor_id', 'destination', 'start_date', 'end_date'] },
-    },
-    handler: async ({ visitor_id: visitorId, destination, start_date: startDate, end_date: endDate }) => fetchGmailContext({ visitorId, destination, startDate, endDate }),
-  },
-  {
-    def: {
-      name: 'fetch_calendar_context',
-      description: 'Return this visitor\'s Google Calendar events within the requested UTC date window as raw source data; Calendar must be connected first.',
-      inputSchema: { type: 'object', properties: { visitor_id: visitorSchema, start_date: dateSchema, end_date: dateSchema }, required: ['visitor_id', 'start_date', 'end_date'] },
-    },
-    handler: async ({ visitor_id: visitorId, start_date: startDate, end_date: endDate }) => fetchCalendarContext({ visitorId, startDate, endDate }),
-  },
-  {
-    def: {
-      name: 'fetch_notion_context',
-      description: 'Search and return up to three Notion pages for this visitor as raw markdown source data. It never uses an LLM to extract or summarize; Notion must be connected first.',
-      inputSchema: { type: 'object', properties: { visitor_id: visitorSchema, destination: { type: 'string' } }, required: ['visitor_id', 'destination'] },
-    },
-    handler: async ({ visitor_id: visitorId, destination }) => fetchNotionContext({ visitorId, destination }),
   },
   {
     def: {

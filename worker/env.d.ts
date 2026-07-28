@@ -18,12 +18,6 @@ export interface Env {
   // Supplied through /settings or retained as a Worker secret fallback.
   MF_API_TOKEN?: string
 
-  // Optional Composio connector configuration; see docs/operations.md.
-  COMPOSIO_API_KEY?: string
-  COMPOSIO_GMAIL_AUTH_CONFIG_ID?: string
-  COMPOSIO_CALENDAR_AUTH_CONFIG_ID?: string
-  COMPOSIO_NOTION_AUTH_CONFIG_ID?: string
-
   // Cloudflare native Workers Rate Limiting binding (GA) — per-IP gate on
   // POST /api/trips (worker/routes/create-trip.mjs). Optional so local/test
   // envs without the binding degrade to "not rate limited" rather than crash.
@@ -37,4 +31,17 @@ export interface TripJobParams {
   visitorId: string
   language: 'en-GB' | 'zh-CN'
   design?: { kind: 'preset'; name: string } | { kind: 'custom'; style: string }
+  agentBinding?: { agentName?: string; mode?: 'direct' }
+}
+
+export interface TripAgentBinding {
+  status: 'connected'
+  mode: 'direct'
+  agentName?: string
+  connectedAt?: string
+}
+
+export interface TripAgentCredential {
+  rpcUrl: string
+  token: string
 }

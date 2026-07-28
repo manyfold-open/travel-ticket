@@ -220,7 +220,7 @@ function pollDelayMs(baseMs, polls) {
   return Math.min(POLL_BACKOFF_CAP_MS, baseMs * 2 ** Math.min(6, polls - POLL_EAGER_COUNT + 1))
 }
 
-async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState) {
+async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState, refreshCredential) {
   let previousState = ''
   let pollFailures = 0
   // Diagnostics for the timeout message below. A bare "did not complete within
@@ -258,10 +258,10 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
       pollFailures += 1
       consecutiveFailures += 1
       lastFailure = failure.message
-      if (failure.refreshCredential) {
+      if (failure.refreshCredential && env) {
         forgetPeerToken(env, peerId)
         try {
-          credential = await getPeerToken(env, peerId)
+          credential = await refreshCredential()
         } catch {
           // The Task already exists. Keep polling it instead of resubmitting.
         }
@@ -295,8 +295,7 @@ async function pollTask(env, credential, peerId, id, deadline, pollIntervalMs, o
   )
 }
 
-async function executeAttempt(env, peerId, body, deadline, pollIntervalMs, onTaskState) {
-  const credential = await getPeerToken(env, peerId)
+async function executeCredentialAttempt(credential, peerId, body, deadline, pollIntervalMs, onTaskState, refreshCredential) {
   const response = await fetchTimeout(credential.rpcUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${credential.token}` },
@@ -308,7 +307,7 @@ async function executeAttempt(env, peerId, body, deadline, pollIntervalMs, onTas
     const id = taskId(data)
     if (!id) throw new A2AError(`Agent ${peerId} returned state "${state}" without a task id.`, true)
     onTaskState?.(state, id)
-    data = await pollTask(env, credential, peerId, id, deadline, pollIntervalMs, onTaskState)
+    data = await pollTask(null, credential, peerId, id, deadline, pollIntervalMs, onTaskState, refreshCredential)
   }
 
   const terminal = terminalTaskError(data, peerId)
@@ -318,14 +317,21 @@ async function executeAttempt(env, peerId, body, deadline, pollIntervalMs, onTas
   return output
 }
 
-function retryDelay(error, attempt, override) {
-  if (override !== undefined) return Math.max(0, override)
-  if (error.retryAfterMs !== undefined) return error.retryAfterMs
-  return Math.min(4_000, 450 * (2 ** Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250)
+async function executeAttempt(env, peerId, body, deadline, pollIntervalMs, onTaskState) {
+  const credential = await getPeerToken(env, peerId)
+  return executeCredentialAttempt(
+    credential,
+    peerId,
+    body,
+    deadline,
+    pollIntervalMs,
+    onTaskState,
+    () => getPeerToken(env, peerId),
+  )
 }
 
-export async function callMfAgent(env, peerId, prompt, options = {}) {
-  const body = JSON.stringify({
+function messageBody(prompt) {
+  return JSON.stringify({
     jsonrpc: '2.0',
     method: 'message/send',
     id: crypto.randomUUID(),
@@ -339,6 +345,16 @@ export async function callMfAgent(env, peerId, prompt, options = {}) {
       configuration: { blocking: false },
     },
   })
+}
+
+function retryDelay(error, attempt, override) {
+  if (override !== undefined) return Math.max(0, override)
+  if (error.retryAfterMs !== undefined) return error.retryAfterMs
+  return Math.min(4_000, 450 * (2 ** Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250)
+}
+
+export async function callMfAgent(env, peerId, prompt, options = {}) {
+  const body = messageBody(prompt)
 
   const attempts = Math.min(3, Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS))
   const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
@@ -364,6 +380,38 @@ export async function callMfAgent(env, peerId, prompt, options = {}) {
     }
   }
   throw lastError ?? new A2AError('Manyfold A2A call failed without an error.', false)
+}
+
+export async function callA2AAgent(credential, prompt, options = {}) {
+  if (!credential?.rpcUrl || !credential?.token) throw new Error('A2A RPC URL and bearer token are required')
+  const body = messageBody(prompt)
+  const attempts = Math.min(2, Math.max(1, options.attempts ?? 1))
+  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+  const peerId = options.peerId ?? 'external Manyfold agent'
+  const deadline = Date.now() + timeoutMs
+  let lastError
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await executeCredentialAttempt(
+        credential,
+        peerId,
+        body,
+        deadline,
+        pollIntervalMs,
+        options.onTaskState,
+      )
+    } catch (error) {
+      const failure = normalizeError(error)
+      lastError = failure
+      if (!failure.retryable || attempt >= attempts) throw failure
+      const delay = retryDelay(failure, attempt, options.retryDelayMs)
+      if (deadline - Date.now() - delay < MIN_RETRY_ROOM_MS) throw failure
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+  throw lastError ?? new A2AError('Direct Manyfold A2A call failed without an error.', false)
 }
 
 export function extractAgentText(data) {
@@ -407,6 +455,27 @@ export async function runMfJson(env, peerId, { system, prompt, schema }, options
     JSON.stringify(schema),
   ].join('\n\n')
   const output = await callMfAgent(env, peerId, fullPrompt, options)
+  const json = extractJson(output)
+  if (!json) throw new Error('no JSON object in agent response')
+  try {
+    return JSON.parse(json)
+  } catch (strictError) {
+    try {
+      return JSON.parse(repairInnerQuotes(json))
+    } catch {
+      throw new Error(`invalid JSON in agent response: ${safeErrorText(strictError)}`)
+    }
+  }
+}
+
+export async function runA2AJson(credential, { system, prompt, schema }, options = {}) {
+  const fullPrompt = [
+    system,
+    prompt,
+    'Respond with ONLY a single JSON object that validates against this JSON Schema — no code fences, no commentary:',
+    JSON.stringify(schema),
+  ].join('\n\n')
+  const output = await callA2AAgent(credential, fullPrompt, options)
   const json = extractJson(output)
   if (!json) throw new Error('no JSON object in agent response')
   try {

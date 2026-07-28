@@ -10,8 +10,8 @@
 // customTheme.mjs/themes.mjs/storage.mjs, all already Worker-safe) — guarded
 // by tests/worker/pipeline-steps.test.mjs.
 import {
-  runTripBriefAgent, runLocalDiscoveryAgent, runTravelContextAgent,
-  runCalendarAgent, runNotionAgent, runComposerAgent, runTimezoneAgent,
+  runTripBriefAgent, runLocalDiscoveryAgent, runConnectorAgent,
+  emptyConnectorContext, runComposerAgent, runTimezoneAgent,
   runStructuredJson,
 } from '../pipeline/agents.mjs'
 import { makeSupervisor, localCompose, customMotifsFrom } from '../pipeline/trip-core.mjs'
@@ -52,25 +52,13 @@ export async function runDiscoveryStep(ctx, brief) {
   return { statuses, discovery }
 }
 
-export async function runGmailStep(ctx, brief, deps = {}) {
+export async function runContextStep(ctx, brief, visitorId, tripId, agentBinding) {
   const statuses = []
   const { supervise } = makeSupervisor(statuses, noopLog)
-  const run = await supervise('Travel Context Agent', () => runTravelContextAgent(ctx, brief, deps))
-  return { statuses, context: run.result }
-}
-
-export async function runCalendarStep(ctx, brief, deps = {}) {
-  const statuses = []
-  const { supervise } = makeSupervisor(statuses, noopLog)
-  const run = await supervise('Calendar Agent', () => runCalendarAgent(ctx, brief, deps))
-  return { statuses, calendar: run.result }
-}
-
-export async function runNotionStep(ctx, brief, deps = {}) {
-  const statuses = []
-  const { supervise } = makeSupervisor(statuses, noopLog)
-  const run = await supervise('Notion Agent', () => runNotionAgent(ctx, brief, deps))
-  return { statuses, notion: run.result }
+  const run = await supervise('Travel Context Agent', () => runConnectorAgent(ctx, {
+    action: 'fetch_context', visitorId, tripId, brief, agentBinding,
+  }))
+  return { statuses, context: run.ok ? run.result : emptyConnectorContext(run.error?.message ?? 'Context agent unavailable.') }
 }
 
 export async function runComposerStep(ctx, { sentence, brief, timezone, discovery, context, calendar, language }) {

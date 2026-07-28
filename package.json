@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8788",
+    "dev:local": "node scripts/dev-local.mjs",
     "studio:local": "node pipeline/server.mjs",
     "mcp": "node pipeline/mcp-server.mjs",
     "plan": "node pipeline/orchestrator.mjs",
     "plan:mock": "node pipeline/orchestrator.mjs --mock",
     "demo": "node scripts/generate-itinerary-preview.mjs",
-    "composio:smoke": "node scripts/composio-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "test": "TRIP_NO_LLM=1 node --test 'tests/**/*.test.mjs'",
     "check:contrast": "node scripts/check-theme-contrast.mjs",
@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
-    "@composio/core": "^0.13.1",
     "opencc-js": "^1.4.1"
   },
   "devDependencies": {

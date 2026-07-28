@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { callMfAgent, extractAgentText, runMfJson } from '../pipeline/mf-client.mjs'
+import { callA2AAgent, callMfAgent, extractAgentText, runMfJson } from '../pipeline/mf-client.mjs'
 
 const ENV = { MF_API_URL: 'https://api.manyfold.ai/api', MF_API_TOKEN: 'self-token', MF_AGENT_ID: 'agt_self' }
 
@@ -26,6 +26,15 @@ test('callMfAgent: mints a peer token then posts JSON-RPC message/send', () => w
 }, async () => {
   const text = await callMfAgent(ENV, 'agt_peer', 'hello')
   assert.equal(text, 'world')
+}))
+
+test('callA2AAgent: posts directly to the supplied RPC URL with its bearer token', () => withFetch(async (url, opts) => {
+  assert.equal(url, 'https://external.example/rpc')
+  assert.equal(opts.headers.authorization, 'Bearer external-token')
+  assert.equal(JSON.parse(opts.body).method, 'message/send')
+  return new Response(JSON.stringify({ result: { parts: [{ text: 'ready' }] } }), { status: 200 })
+}, async () => {
+  assert.equal(await callA2AAgent({ rpcUrl: 'https://external.example/rpc', token: 'external-token' }, 'ping'), 'ready')
 }))
 
 test('callMfAgent: retries only when the caller opts in', () => withFetch((() => {

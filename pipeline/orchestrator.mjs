@@ -11,8 +11,7 @@
 //   Trip Brief Agent (LLM)
 //     ├─ Timezone Agent (pure code)
 //     ├─ Local Discovery Agent (LLM + web search)
-//     ├─ Travel Context Agent (Gmail via Composio MCP)
-//     └─ Calendar Agent (Google Calendar via Composio MCP)
+//     └─ Context Agent (user Manyfold Connector → Composio)
 //   Itinerary Composer Agent (LLM) — falls back to a local composer on
 //   timeout/failure, mirroring how the demo artifact was produced.
 //
