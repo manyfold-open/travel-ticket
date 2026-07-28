@@ -34,8 +34,8 @@ ADMIN_SETTINGS_PASSWORD=replace-with-a-long-random-password
 | 分类 | 配置 |
 |---|---|
 | Access | 必填的 6 位应用访问口令 |
-| Manyfold | API URL、source agent、API token，以及五个 role peers |
-| Manyfold Connector | 由用户自己的 Manyfold host agent 管理 Gmail/Calendar/Notion 与 Composio 连接 |
+| Manyfold | API URL、source agent、API token，以及 Brief、Discovery、Composer、Theme role peers |
+| Private context | 当前停用；不要求用户连接 External Client 或配置 Composio |
 
 只有 `ADMIN_SETTINGS_PASSWORD` 必须先作为环境 secret 存在。页面保存的配置使用
 AES-GCM 加密后写入 `TRIPS_KV`；secret 字段只返回 configured/source 状态，不回显
@@ -124,11 +124,11 @@ TRAVEL_TICKET_ACCESS_PASSCODE=123456 npm run smoke -- \
 `ADMIN_SETTINGS_PASSWORD` 同时存在。`/api/config.ready` 只有满足以下条件才为
 `true`：
 
-- Manyfold URL、source agent、token 和五个 role peers 全部存在。使用者自己的
-  External Client URL/token 在每个 trip 的 Connect Agent 页面提供，不属于部署 readiness。
+- Manyfold URL、source agent、token 和四个启用中的 role peers 全部存在。Private
+  context 当前停用，不需要 External Client URL/token。
 
-若用户没有连接 Manyfold agent，连接页面可以选择跳过，workflow 会诚实地以空 context
-继续。Gmail、Calendar、Notion 和 Composio 的设置只在用户自己的 Manyfold 内完成。
+Workflow 会直接启动，Private Context Agent 会诚实地标记为 skipped 并使用空 context。
+未来 OAuth + Manyfold-owned provider setup 完成后，再重新启用这条流程。
 
 ## 常见问题
 
@@ -146,8 +146,8 @@ bootstrap。
 ### Agent 一直 working
 
 先检查 `/api/trips/:id` 的 `phase`、`tasks`、attempt 和 error。若 phase 仍为
-`draft`，说明用户尚未输入 Manyfold External Client credential，或尚未开始打印。A2A 接受后的 Task
-会轮询最多四分钟；整个 workflow task 最多三次 attempt。超过十分钟的单次调用还
+`draft`，说明 start request 尚未成功送出。Private Context 会直接标记 skipped；其余
+A2A task 依角色预算轮询，整个 workflow task 最多三次 attempt。超过十分钟的单次调用
 可能触发 lease 过期，应拆分 Agent 工作而不是无限增大超时。
 
 ### 修改管理密码后配置消失
@@ -170,10 +170,8 @@ Durable Object terminal state 保留七天。状态过期后会返回 404；生�
 - 不在 `/api/config` 或 `/settings` API 回传 secret。
 - access code 只保存在加密 Settings 或环境 secret 中，不写入静态资源。
 - 所有业务页面、生成的 trip 文件和 API 都必须经过服务端 access guard。
-- Travel Ticket 只保存 trip-scoped Manyfold A2A RPC URL/token 和 binding metadata；
-  provider credential、OAuth token、Composio account ID 和 external subject 都必须留在
-  用户自己的 Manyfold host agent 内。A2A token 不会出现在 snapshot、API response 或日志。
-- Manyfold host agent 必须自行执行 Gmail/Calendar/Notion 的账号隔离，不允许回退到
-  owner 默认账号。
+- 当前版本不保存 trip-scoped External Client credential，也不执行 provider OAuth。
+- 未来 Private Context 重新启用后，provider credential、OAuth token、Composio account
+  ID 和 external subject 都必须留在用户自己的 Manyfold host agent 内。
 - 保留每 IP Rate Limiting，限制昂贵的 trip 创建请求。
 - 不新增 cron、Cloudflare Workflows 或本地生产部署入口。

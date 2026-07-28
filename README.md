@@ -10,7 +10,7 @@
 一句話 ─▶ Trip Brief Agent (LLM, structured output)
               ├─ Timezone Agent        (純程式，Intl 計算時差/DST)
               ├─ Local Discovery Agent (LLM + web search，官方來源)
-              └─ Context Agent         (使用者 Manyfold Connector → Composio)
+              └─ Private Context       (目前停用，使用空 context)
           Itinerary Composer Agent (LLM) ─▶ final_itinerary.json ─▶ dist/ 網站
 ```
 
@@ -26,8 +26,7 @@
 npm run dev   # → http://localhost:8788
 ```
 
-開瀏覽器貼上一句話 → 建立 draft → 連接自己的 Manyfold agent 或跳過 →
-明確啟動 Workflow → 即時看每個 agent 的進度 → 完成後打開
+開瀏覽器貼上一句話 → 建立並啟動 Workflow → 即時看每個 agent 的進度 → 完成後打開
 `/trips/<id>/`。`/settings`、Durable Object、Queue 和 KV 都在同一個 Worker origin。
 
 公開應用由 6 位數 access code 保護。第一次使用先進入 `/settings` 設定口令，
@@ -109,19 +108,14 @@ LLM backend 自動選擇（也可用 `--backend=sdk|cli` 強制指定）：
 - `cover`：封面文案（標題、eyebrow、route stops、stats）——Composer 產生，渲染器也能自行推導
 - `actions_suggested`：後續動作（訂票確認、寫入 Calendar 等），全部 `requires_approval: true`
 
-## Connectors (Manyfold-owned)
+## Private Context
 
-Travel Ticket 不保存 Composio key、不執行 Composio tool，也不建立 provider OAuth
-連線。使用者在 Manyfold Agent Detail 開啟 A2A，於 `Inbound · who can call this agent`
-用 `Add caller` 建立 `External Client`，再把 `A2A RPC URL` 和 `Bearer token` 貼到
-Travel Ticket 的 Connect Agent 頁面。
+目前版本不使用 Gmail、Calendar、Notion 或 Composio context，也不要求使用者連接
+Manyfold External Client。行程只根據使用者請求、目的地調研和已配置的 pipeline agents
+生成；context stage 會明確記錄為 `skipped` 並使用空資料。
 
-Travel Ticket 的第二頁只負責把這次 trip 綁定到使用者提供的 Manyfold External
-Client；Gmail、Calendar、Notion 與 Composio 連線都由宿主 agent 管理。連線契約見
-[`docs/manyfold-agent-install.md`](./docs/manyfold-agent-install.md)。
-
-Travel Ticket 不顯示 Gmail、Calendar、Notion 或 Composio 設定頁。未設定的 provider
-由 Manyfold context agent 自己回報狀態，Travel Ticket 以空 context 繼續出票。
+未來若加入 OAuth，會重新啟用這條邊界，讓使用者授權 Manyfold agent，再由該 agent
+管理 provider 連線；Travel Ticket 不會直接保存 Composio credential。
 
 ## Use as an MCP server
 
@@ -133,8 +127,8 @@ client 自己的模型 session / 訂閱承擔推理成本。
 **Prerequisites**
 - Node 22+
 - 不需要 `ANTHROPIC_API_KEY`，也不需要登入 `claude` CLI。
-- 私有 Gmail/Calendar/Notion context 必須由使用者自己的 Manyfold agent 提供；這個
-  renderer MCP server 本身不管理 connector。
+- hosted pipeline 目前不讀取私有 Gmail/Calendar/Notion context；MCP client 若需要，
+  可自行提供 optional context。
 
 **MCP tools**
 - `get_itinerary_schema`：回傳 `final_itinerary` JSON schema 與完整範例。
@@ -143,7 +137,7 @@ client 自己的模型 session / 訂閱承擔推理成本。
 
 **典型流程**
 1. Client 先呼叫 `get_itinerary_schema`，再自行理解需求、搜尋當地資料。
-2. 私有 connector context 由目前 Manyfold agent 完成授權與資料整理。
+2. Client 可自行提供 optional context，或直接使用空 context。
 3. Client 組合 itinerary JSON 後呼叫 `render_ticket`，取得本機 `entry` 路徑。
 
 **Client 設定範例**（把路徑換成你自己 clone 這個 repo 的絕對路徑）：
@@ -180,8 +174,8 @@ ADMIN_SETTINGS_PASSWORD=choose-a-long-random-password
 ```
 
 執行 `npm run dev` 後進入 `http://localhost:8788/settings`，可配置 Manyfold role
-agents、Manyfold token 和必要的 6 位 access code。Connector/Composio 設定留在
-使用者自己的 Manyfold。Travel Ticket 的 secret 會加密保存在
+agents、Manyfold token 和必要的 6 位 access code。Private context 目前停用，未要求
+使用者配置 Connector/Composio。Travel Ticket 的 secret 會加密保存在
 KV，頁面不會回顯。
 
 生產部署只由 [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)

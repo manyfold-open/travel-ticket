@@ -6,7 +6,6 @@ const AGENT_ROUTING_KEYS = [
   'MF_AGENT_ID',
   'AGENT_BRIEF',
   'AGENT_DISCOVERY',
-  'AGENT_CONTEXT_EXTRACTOR',
   'AGENT_COMPOSER',
   'AGENT_THEME_DESIGNER',
 ]
@@ -58,12 +57,6 @@ const FIELDS = [
     key: 'AGENT_DISCOVERY',
     label: 'Discovery agent',
     description: 'Peer used for local destination research.',
-    required: true,
-  },
-  {
-    key: 'AGENT_CONTEXT_EXTRACTOR',
-    label: 'Context extractor agent',
-    description: 'Peer used to interpret Gmail and Notion context.',
     required: true,
   },
   {

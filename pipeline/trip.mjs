@@ -17,8 +17,6 @@ import {
   createLocalContext as createContext,
   runTripBriefAgent,
   runLocalDiscoveryAgent,
-  runConnectorAgent,
-  createLocalConnectorContext,
   runComposerAgent,
   runPosterAgent,
   runStructuredJson,
@@ -120,16 +118,14 @@ export async function planTrip(sentence, { mock = false, backend, language = 'en
 
   // Stage 2 — parallel context gathering
   const timezoneRun = await supervise('Timezone Agent', async () => runTimezoneAgent(brief), { confidence: 0.99 })
-  const connectorCtx = mock ? null : createLocalConnectorContext()
   const [discoveryRun, contextRun] = await Promise.all([
     mock
       ? (recordStatus('Local Discovery Agent', 'completed', 1, 'Mock discovery.'), log('Local Discovery Agent: completed (mock)'), Promise.resolve({ ok: true, result: normalLanguage === 'zh-CN' ? MOCK_DISCOVERY_ZH : MOCK_DISCOVERY }))
       : supervise('Local Discovery Agent', () => runLocalDiscoveryAgent(ctx, brief), { confidence: 0.8 }),
-    connectorCtx
-      ? supervise('Travel Context Agent', () => runConnectorAgent(connectorCtx, {
-        action: 'fetch_context', visitorId: process.env.TRIP_CONNECTOR_USER_ID || 'local-trip-user', tripId, brief,
-      }))
-      : (recordStatus('Travel Context Agent', 'skipped', 0, 'Manyfold connector agent is not configured.'), Promise.resolve({ ok: true, result: emptyConnectorContext('Manyfold connector agent is not configured.') })),
+    (recordStatus('Travel Context Agent', 'skipped', 0, 'Private travel context is currently disabled.'), Promise.resolve({
+      ok: true,
+      result: emptyConnectorContext('Private travel context is currently disabled.'),
+    })),
   ])
 
   const timezone = timezoneRun.ok ? timezoneRun.result : runTimezoneAgent({ ...brief, destination_timezone: 'UTC', home_timezone: 'UTC' })

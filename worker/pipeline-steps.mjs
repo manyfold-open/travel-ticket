@@ -10,7 +10,7 @@
 // customTheme.mjs/themes.mjs/storage.mjs, all already Worker-safe) — guarded
 // by tests/worker/pipeline-steps.test.mjs.
 import {
-  runTripBriefAgent, runLocalDiscoveryAgent, runConnectorAgent,
+  runTripBriefAgent, runLocalDiscoveryAgent,
   emptyConnectorContext, runComposerAgent, runTimezoneAgent,
   runStructuredJson,
 } from '../pipeline/agents.mjs'
@@ -52,20 +52,12 @@ export async function runDiscoveryStep(ctx, brief) {
   return { statuses, discovery }
 }
 
-export async function runContextStep(ctx, brief, visitorId, tripId, agentBinding) {
+export async function runContextStep(_ctx, _brief, _visitorId, _tripId, _agentBinding) {
   const statuses = []
-  const { supervise, recordStatus } = makeSupervisor(statuses, noopLog)
-  // No user-supplied External Client → honestly skip, mirroring trip.mjs. Only a
-  // connected agent that then errors is a 'failed'; never label an absent one so.
-  if (!ctx) {
-    const notes = 'Manyfold connector agent is not configured.'
-    recordStatus('Travel Context Agent', 'skipped', 0, notes)
-    return { statuses, context: emptyConnectorContext(notes) }
-  }
-  const run = await supervise('Travel Context Agent', () => runConnectorAgent(ctx, {
-    action: 'fetch_context', visitorId, tripId, brief, agentBinding,
-  }))
-  return { statuses, context: run.ok ? run.result : emptyConnectorContext(run.error?.message ?? 'Context agent unavailable.') }
+  const { recordStatus } = makeSupervisor(statuses, noopLog)
+  const notes = 'Private travel context is currently disabled.'
+  recordStatus('Travel Context Agent', 'skipped', 0, notes)
+  return { statuses, context: emptyConnectorContext(notes) }
 }
 
 export async function runComposerStep(ctx, { sentence, brief, timezone, discovery, context, calendar, language }) {

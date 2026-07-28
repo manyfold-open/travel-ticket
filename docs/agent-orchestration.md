@@ -25,11 +25,11 @@ flowchart TD
 | Source identity | `MF_AGENT_ID` | mint peer credential |
 | Brief | `AGENT_BRIEF` | 将一句话转为结构化 trip brief |
 | Discovery | `AGENT_DISCOVERY` | 目的地资料与来源 |
-| Context connector | `AGENT_CONTEXT_EXTRACTOR` | 通过用户 Manyfold Connector 处理 Gmail、Calendar、Notion |
+| Private context | disabled | 当前使用空 context，不调用 External Client |
 | Composer | `AGENT_COMPOSER` | 合并资料生成 itinerary |
 | Theme designer | `AGENT_THEME_DESIGNER` | 生成自定义视觉 tokens |
 
-生产环境必须为五个角色分别配置 peer，不使用共享 Agent fallback。
+生产环境必须为四个启用中的 role 分别配置 peer，不使用共享 Agent fallback。
 
 ## Manyfold A2A 调用
 
@@ -55,7 +55,7 @@ Peer credential cache 以 API URL、source agent 和 peer ID 共同隔离。401 
 任务状态为 `pending → running → done`，失败时可能回到 `pending` 等待重试，
 最终进入 `failed`。Job 状态为
 `draft → queued → running → done | error`。创建 draft 不会发布 Queue；只有用户
-在 Connector 页面授权或选择跳过后调用幂等 `start()` 才进入 queued。
+调用幂等 `start()` 后进入 queued；当前不需要 Connector 页面。
 
 - Queue 是 at-least-once delivery，不能作为状态真相来源。
 - draft 最多保留 24 小时，避免未完成 Connector 步骤的任务永久占用状态。
@@ -72,7 +72,7 @@ Peer credential cache 以 API URL、source agent 和 peer ID 共同隔离。401 
 | Brief | 硬失败；没有 brief 不能继续 |
 | Timezone | 使用 UTC 安全结果 |
 | Discovery | 使用空 POI、交通和来源 |
-| Context connector | Manyfold 未配置、provider 未授权或 agent 失败时诚实标记 skipped |
+| Private context | 当前停用，诚实标记 skipped 并使用空 context |
 | Composer | 使用本地 composer 生成可渲染结果 |
 | Custom theme | 回退到目的地 preset |
 | Render / persistence | 硬失败并展示原因 |

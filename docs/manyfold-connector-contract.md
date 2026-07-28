@@ -1,6 +1,10 @@
-# Manyfold Connector Contract
+# Future: Manyfold Connector Contract
 
-Travel Ticket calls the user's Manyfold context agent over A2A. The user
+Private context is currently disabled in the hosted Travel Ticket flow. The
+contract below is retained for the later OAuth-based integration and is not
+called by the current Worker.
+
+The future Travel Ticket flow calls the user's Manyfold context agent over A2A. The user
 provides the External Client `A2A RPC URL` and `Bearer token` on the Travel
 Ticket connect page. Manyfold owns all provider integrations.
 

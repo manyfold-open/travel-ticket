@@ -86,18 +86,19 @@ test('runDiscoveryStep: falls back to empty discovery when the agent fails', asy
   assert.deepEqual(discovery, { pois: [], transports: [], sources: [] })
 })
 
-test('runContextStep: records skipped (not failed) when no External Client is connected', async () => {
+test('runContextStep: skips private context when the feature is disabled', async () => {
   const context = await runContextStep(null, BRIEF, 'visitor_test', 'trip_test')
   assert.equal(context.statuses[0].agent, 'Travel Context Agent')
   assert.equal(context.statuses[0].status, 'skipped')
+  assert.match(context.statuses[0].notes, /currently disabled/)
   assert.deepEqual(context.context.bookings, [])
   assert.deepEqual(context.context.calendar_events, [])
   assert.deepEqual(context.context.travel_notes, [])
 })
 
-test('runContextStep: records failed when a connected agent errors mid-call', async () => {
+test('runContextStep: never calls a connected agent while private context is disabled', async () => {
   const context = await runContextStep(brokenCtx, BRIEF, 'visitor_test', 'trip_test')
-  assert.equal(context.statuses[0].status, 'failed')
+  assert.equal(context.statuses[0].status, 'skipped')
   assert.deepEqual(context.context.bookings, [])
   assert.deepEqual(context.context.calendar_events, [])
   assert.deepEqual(context.context.travel_notes, [])

@@ -1,6 +1,11 @@
-# Manyfold External Client Connection
+# Future: Manyfold Agent Authorization
 
-Travel Ticket connects directly to the user's existing Manyfold agent through
+The hosted Travel Ticket flow currently does not expose this connection page or
+run the private-context stage. This document preserves the planned A2A boundary
+for the later OAuth-based Manyfold agent integration; it is not a current setup
+requirement.
+
+The planned flow connects directly to the user's existing Manyfold agent through
 the Manyfold External Client credentials. It does not create an agent, start an
 OAuth flow, or use an install callback.
 
