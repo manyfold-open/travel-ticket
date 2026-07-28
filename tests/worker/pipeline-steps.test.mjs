@@ -86,7 +86,16 @@ test('runDiscoveryStep: falls back to empty discovery when the agent fails', asy
   assert.deepEqual(discovery, { pois: [], transports: [], sources: [] })
 })
 
-test('runContextStep: honestly skips when the Manyfold connector agent is unavailable', async () => {
+test('runContextStep: records skipped (not failed) when no External Client is connected', async () => {
+  const context = await runContextStep(null, BRIEF, 'visitor_test', 'trip_test')
+  assert.equal(context.statuses[0].agent, 'Travel Context Agent')
+  assert.equal(context.statuses[0].status, 'skipped')
+  assert.deepEqual(context.context.bookings, [])
+  assert.deepEqual(context.context.calendar_events, [])
+  assert.deepEqual(context.context.travel_notes, [])
+})
+
+test('runContextStep: records failed when a connected agent errors mid-call', async () => {
   const context = await runContextStep(brokenCtx, BRIEF, 'visitor_test', 'trip_test')
   assert.equal(context.statuses[0].status, 'failed')
   assert.deepEqual(context.context.bookings, [])

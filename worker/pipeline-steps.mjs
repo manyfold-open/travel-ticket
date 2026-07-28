@@ -54,7 +54,14 @@ export async function runDiscoveryStep(ctx, brief) {
 
 export async function runContextStep(ctx, brief, visitorId, tripId, agentBinding) {
   const statuses = []
-  const { supervise } = makeSupervisor(statuses, noopLog)
+  const { supervise, recordStatus } = makeSupervisor(statuses, noopLog)
+  // No user-supplied External Client → honestly skip, mirroring trip.mjs. Only a
+  // connected agent that then errors is a 'failed'; never label an absent one so.
+  if (!ctx) {
+    const notes = 'Manyfold connector agent is not configured.'
+    recordStatus('Travel Context Agent', 'skipped', 0, notes)
+    return { statuses, context: emptyConnectorContext(notes) }
+  }
   const run = await supervise('Travel Context Agent', () => runConnectorAgent(ctx, {
     action: 'fetch_context', visitorId, tripId, brief, agentBinding,
   }))
