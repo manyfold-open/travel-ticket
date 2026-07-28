@@ -166,12 +166,12 @@ Durable Object terminal state 保留七天。状态过期后会返回 404；生�
 
 ## 安全边界
 
-- 不把 token、密码、OAuth credential 写入 TOML、Markdown、Queue 或浏览器资源。
+- 不把 token、密码、provider credential 写入 TOML、Markdown、Queue 或浏览器资源。
 - 不在 `/api/config` 或 `/settings` API 回传 secret。
 - access code 只保存在加密 Settings 或环境 secret 中，不写入静态资源。
 - 所有业务页面、生成的 trip 文件和 API 都必须经过服务端 access guard。
-- 当前版本不保存 trip-scoped External Client credential，也不执行 provider OAuth。
-- Private Context 当前停用；provider credential、OAuth token、Composio account ID 和
+- 当前版本不保存 trip-scoped External Client credential，也不执行 provider setup。
+- Private Context 当前停用；provider credential、provider token、Composio account ID 和
   external subject 不进入 Travel Ticket。
 - 保留每 IP Rate Limiting，限制昂贵的 trip 创建请求。
 - 不新增 cron、Cloudflare Workflows 或本地生产部署入口。

@@ -50,4 +50,4 @@ provider is unavailable, the agent returns its status and an empty array for
 that source. The workflow can still print.
 
 Responses must contain only trip-relevant normalized context. They must not
-contain OAuth tokens, API keys, or unrelated account data.
+contain provider tokens, API keys, or unrelated account data.

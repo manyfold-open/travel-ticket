@@ -5,8 +5,8 @@ run the private-context stage. This document is retained as a disabled integrati
 reference and is not a current setup requirement.
 
 The disabled flow connects directly to the user's existing Manyfold agent through
-the Manyfold External Client credentials. It does not create an agent, start an
-OAuth flow, or use an install callback.
+the Manyfold External Client credentials. It does not create an agent, start a
+provider setup flow, or use an install callback.
 
 ```text
 Manyfold Agent Detail -> A2A -> Inbound -> Add caller -> External Client
