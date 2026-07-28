@@ -95,8 +95,8 @@ Queue 消息不携带 prompt、connector 数据或任务输出。外部任务执
 Durable Object claim 读取，避免消息重复投递导致状态分叉。
 
 Travel Ticket 当前不保存或传递 Composio credentials，也不保存 External Client
-credential。Private Context 仅以空 context 进入 Composer；未来 OAuth 流程会重新定义
-host-agent binding 和 normalized context 的数据边界。
+credential。Private Context 仅以空 context 进入 Composer，当前不保存 host-agent binding
+或 normalized private context。
 
 ## 生命周期
 

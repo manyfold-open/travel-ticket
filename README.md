@@ -114,8 +114,7 @@ LLM backend 自動選擇（也可用 `--backend=sdk|cli` 強制指定）：
 Manyfold External Client。行程只根據使用者請求、目的地調研和已配置的 pipeline agents
 生成；context stage 會明確記錄為 `skipped` 並使用空資料。
 
-未來若加入 OAuth，會重新啟用這條邊界，讓使用者授權 Manyfold agent，再由該 agent
-管理 provider 連線；Travel Ticket 不會直接保存 Composio credential。
+Private context 相關連線目前停用；Travel Ticket 不會直接保存 Composio credential。
 
 ## Use as an MCP server
 

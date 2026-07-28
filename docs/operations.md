@@ -128,7 +128,7 @@ TRAVEL_TICKET_ACCESS_PASSCODE=123456 npm run smoke -- \
   context 当前停用，不需要 External Client URL/token。
 
 Workflow 会直接启动，Private Context Agent 会诚实地标记为 skipped 并使用空 context。
-未来 OAuth + Manyfold-owned provider setup 完成后，再重新启用这条流程。
+当前不会读取私人账户资料，也不会启动 provider setup。
 
 ## 常见问题
 
@@ -171,7 +171,7 @@ Durable Object terminal state 保留七天。状态过期后会返回 404；生�
 - access code 只保存在加密 Settings 或环境 secret 中，不写入静态资源。
 - 所有业务页面、生成的 trip 文件和 API 都必须经过服务端 access guard。
 - 当前版本不保存 trip-scoped External Client credential，也不执行 provider OAuth。
-- 未来 Private Context 重新启用后，provider credential、OAuth token、Composio account
-  ID 和 external subject 都必须留在用户自己的 Manyfold host agent 内。
+- Private Context 当前停用；provider credential、OAuth token、Composio account ID 和
+  external subject 不进入 Travel Ticket。
 - 保留每 IP Rate Limiting，限制昂贵的 trip 创建请求。
 - 不新增 cron、Cloudflare Workflows 或本地生产部署入口。
