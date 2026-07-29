@@ -1,6 +1,10 @@
-# Manyfold Connector Contract
+# Manyfold Connector Contract (Disabled)
 
-Travel Ticket calls the user's Manyfold context agent over A2A. The user
+Private context is currently disabled in the hosted Travel Ticket flow. The
+contract below is retained as a disabled integration reference and is not called
+by the current Worker.
+
+The disabled Travel Ticket flow calls the user's Manyfold context agent over A2A. The user
 provides the External Client `A2A RPC URL` and `Bearer token` on the Travel
 Ticket connect page. Manyfold owns all provider integrations.
 
@@ -46,4 +50,4 @@ provider is unavailable, the agent returns its status and an empty array for
 that source. The workflow can still print.
 
 Responses must contain only trip-relevant normalized context. They must not
-contain OAuth tokens, API keys, or unrelated account data.
+contain provider tokens, API keys, or unrelated account data.

@@ -50,12 +50,12 @@ flowchart LR
 | `/api/trips` | POST | 按 IP 限流后创建 draft |
 | `/api/trips/:id` | GET | 获取 trip 和 workflow 状态 |
 | `/api/trips/:id/start` | POST | 幂等启动 draft |
-| `/api/trips/:id/agent` | GET | 获取 Manyfold host-agent binding 状态 |
-| `/api/trips/:id/agent/link` | POST | 验证并保存用户提供的 A2A RPC URL/token |
+| `/api/trips/:id/agent` | GET | 预留的 Manyfold host-agent binding 状态 |
+| `/api/trips/:id/agent/link` | POST | 预留的 External Client 兼容入口 |
 | `/api/trips/:id/connectors` | GET | 获取全部 connector 状态 |
 | `/api/trips/:id/connectors/:provider` | GET | 查询单个 connector |
 | `/api/trips/:id/connectors/:provider/link` | POST | 兼容入口；提示回 Manyfold 完成 provider setup |
-| `/trips/:id/connect` | GET | 连接 Manyfold agent 或跳过 |
+| `/trips/:id/connect` | GET | 旧版兼容页面；当前新流程不会导向 |
 | `/trips/:id/progress` | GET | 展示 workflow 进度 |
 | `/trips/:id/` | GET | 最终手册；无尾斜杠版本 308 到此路径 |
 | `/trips/:id/*` | GET/HEAD | 读取手册静态文件 |
@@ -74,13 +74,10 @@ API 返回 401 `ACCESS_REQUIRED`。口令尚未配置时 API 使用 503
 1. 访客在 `/access` 输入 6 位口令，取得绑定当前口令版本的签名 cookie。
 2. 浏览器读取 `/api/config`。Manyfold 未配置完整时，出票按钮不可用。
 3. `POST /api/trips` 执行 Workers Rate Limiting。
-4. Worker 创建以 `tripId` 命名的 draft `TripJob`，但不发布 Queue。
-5. 浏览器进入 `/trips/:id/connect`；用户在 Manyfold Agent Detail 的 A2A Inbound
-   External Client 中复制 RPC URL 和 Bearer token，Travel Ticket 以 `message/send`
-   测试后保存 direct binding。Travel Ticket 不直接发起 provider OAuth。
-6. 用户也可以选择跳过后，
-   `POST /api/trips/:id/start` 幂等进入 queued。
-7. `TripJob` 发布可运行任务；Queue consumer 取得租约并调用 Manyfold A2A。
+4. Worker 创建以 `tripId` 命名的 draft `TripJob`。
+5. 浏览器立即调用 `POST /api/trips/:id/start`，不要求 External Client。
+6. `TripJob` 发布可运行任务；Queue consumer 取得租约并调用已配置的 pipeline agents。
+7. Private Context task 记录 skipped 和空 context，不发出 A2A connector 请求。
 8. 浏览器在 `/trips/:id/progress` 轮询 canonical trip resource。
 9. `render` 写入 `TRIPS_SITES`，浏览器跳转到 `/trips/:id/`。
 
@@ -97,9 +94,9 @@ API 返回 401 `ACCESS_REQUIRED`。口令尚未配置时 API 使用 503
 Queue 消息不携带 prompt、connector 数据或任务输出。外部任务执行所需数据从
 Durable Object claim 读取，避免消息重复投递导致状态分叉。
 
-Travel Ticket 不保存或传递 Composio credentials。`TRIP_JOBS` 保存 direct binding、
-trip-scoped A2A credential 和 workflow 状态；credential 不出现在 snapshot、API
-响应或日志中。Connector context 由宿主 Manyfold agent 整理成 normalized context。
+Travel Ticket 当前不保存或传递 Composio credentials，也不保存 External Client
+credential。Private Context 仅以空 context 进入 Composer，当前不保存 host-agent binding
+或 normalized private context。
 
 ## 生命周期
 

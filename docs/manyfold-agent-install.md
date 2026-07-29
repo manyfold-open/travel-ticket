@@ -1,8 +1,12 @@
-# Manyfold External Client Connection
+# Manyfold Agent Connection (Disabled)
 
-Travel Ticket connects directly to the user's existing Manyfold agent through
-the Manyfold External Client credentials. It does not create an agent, start an
-OAuth flow, or use an install callback.
+The hosted Travel Ticket flow currently does not expose this connection page or
+run the private-context stage. This document is retained as a disabled integration
+reference and is not a current setup requirement.
+
+The disabled flow connects directly to the user's existing Manyfold agent through
+the Manyfold External Client credentials. It does not create an agent, start a
+provider setup flow, or use an install callback.
 
 ```text
 Manyfold Agent Detail -> A2A -> Inbound -> Add caller -> External Client

@@ -1,5 +1,5 @@
 import cityThemePrompt from '../pipeline/prompts/city-theme.txt'
-import { createDirectA2AContext, createMfContext } from '../pipeline/agents.mjs'
+import { createMfContext } from '../pipeline/agents.mjs'
 import { assembleItinerary } from '../pipeline/trip-core.mjs'
 import {
   runBriefStep,
@@ -33,12 +33,7 @@ async function executeTask(env: Env, taskId: TripTaskName, claim: TripTaskClaim)
   if (taskId === 'timezone') return runTimezoneStep(brief)
   if (taskId === 'discovery') return runDiscoveryStep(createMfContext(env, 'discovery'), brief)
   if (taskId === 'context') {
-    // Private context must come only from the user's supplied External Client.
-    // Skipping the connection must never fall back to the deployment's role peer.
-    const context = claim.agentCredential
-      ? createDirectA2AContext(claim.agentCredential, 'context')
-      : null
-    return runContextStep(context, brief, params.visitorId, params.tripId, params.agentBinding)
+    return runContextStep(null, brief, params.visitorId, params.tripId, params.agentBinding)
   }
 
   const timezoneRes = output<{ timezone: unknown }>(claim, 'timezone')

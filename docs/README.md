@@ -39,6 +39,6 @@ Cloudflare Workflows 和本地部署命令。不要从历史文档复制生产�
 ## 文档维护规则
 
 - 新的运行方式必须同步更新对应当前文档。
-- 不在文档中保存 token、密码、OAuth credential 或账号专属资源 ID。
+- 不在文档中保存 token、密码、provider credential 或账号专属资源 ID。
 - 已被替代的方案移入 `history/`，不要与当前操作步骤混写。
 - 当前文档使用相对路径，确保 GitHub 和本地浏览都能打开。
