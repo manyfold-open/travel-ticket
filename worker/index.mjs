@@ -205,8 +205,9 @@ export async function handleFetch(request, env) {
     return env.ASSETS.fetch(assetRequest(request, url, assetPath))
   }
 
+  // TEMPORARY: access-code gate disabled. Restore by re-adding
+  // if (access.response) return access.response below.
   const access = await guardTravelTicketAccess(request, env)
-  if (access.response) return access.response
   const runtimeEnv = access.runtimeEnv
 
   if (pathname === '/connect' || pathname === '/connect.html') {

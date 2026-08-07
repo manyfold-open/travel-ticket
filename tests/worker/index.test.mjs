@@ -71,16 +71,14 @@ async function handleFetch(request, env) {
   return workerHandleFetch(new Request(request, { headers }), env)
 }
 
-test('handleFetch: protects visitor pages and APIs while keeping access and settings public', async () => {
+test('handleFetch: access gate is temporarily disabled, so visitor pages and APIs are open', async () => {
   const env = makeEnv()
   const document = await workerHandleFetch(new Request('https://example.com/?trip=abc'), env)
-  assert.equal(document.status, 302)
-  assert.equal(new URL(document.headers.get('location')).pathname, '/access')
-  assert.equal(new URL(document.headers.get('location')).searchParams.get('next'), '/?trip=abc')
+  assert.equal(document.status, 200)
+  assert.equal(await document.text(), 'app shell')
 
   const api = await workerHandleFetch(new Request('https://example.com/api/config'), env)
-  assert.equal(api.status, 401)
-  assert.equal((await api.json()).code, 'ACCESS_REQUIRED')
+  assert.equal(api.status, 200)
 
   const access = await workerHandleFetch(new Request('https://example.com/access'), env)
   assert.equal(access.status, 200)
