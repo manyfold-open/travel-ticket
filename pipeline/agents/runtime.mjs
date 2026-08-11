@@ -45,6 +45,9 @@ export function createMfContext(env, role) {
     role,
     peerId,
     timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role]),
+    // Stamped once, when the context is built. One context is created per queue
+    // invocation, so every call made through it shares one wall-clock budget.
+    deadlineAt: Date.now() + agentCallBudgetMs(ROLE_SUPERVISED_AS[role]),
     onTaskState: (state, taskId, detail) => {
       console.log(`[a2a] ${role} ${taskId} ${state}${detail ? ` · ${detail}` : ''}`)
     },
@@ -60,16 +63,32 @@ export function createDirectA2AContext(credential, role = 'context') {
     credential,
     role,
     timeoutMs: agentCallBudgetMs(ROLE_SUPERVISED_AS[role] ?? 'Travel Context Agent'),
+    deadlineAt: Date.now() + agentCallBudgetMs(ROLE_SUPERVISED_AS[role] ?? 'Travel Context Agent'),
     onTaskState: (state, taskId, detail) => {
       console.log(`[a2a-direct] ${role} ${taskId} ${state}${detail ? ` · ${detail}` : ''}`)
     },
   }
 }
 
-// Every mf-backed call needs the role's deadline and its logger; forgetting
-// either is how a stalled agent turn becomes an unexplained failure.
+/**
+ * Every mf-backed call needs the role's deadline and its logger; forgetting
+ * either is how a stalled agent turn becomes an unexplained failure.
+ *
+ * timeoutMs shrinks as the context's deadline approaches. It used to be
+ * returned whole on every call, which meant the language-policy retry in
+ * agents/trip.mjs — a second full call after the first had already spent its
+ * budget — could run a role to twice its allowance. For the composer that is
+ * 2 x 460s against a 600s Durable Object lease: the lease expires mid-flight,
+ * the task is re-dispatched, and a second billed session starts while the
+ * first is still running.
+ */
 export function mfCallOptions(ctx) {
-  return { timeoutMs: ctx.timeoutMs, onTaskState: ctx.onTaskState }
+  const deadlineAt = ctx.deadlineAt ?? (Date.now() + ctx.timeoutMs)
+  return {
+    timeoutMs: Math.max(5_000, Math.min(ctx.timeoutMs, deadlineAt - Date.now())),
+    deadlineAt,
+    onTaskState: ctx.onTaskState,
+  }
 }
 
 export async function runStructuredJson(ctx, { system, prompt, schema, maxTokens = 4000 }) {

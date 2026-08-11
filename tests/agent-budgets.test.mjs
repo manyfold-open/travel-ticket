@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AGENT_BUDGET_MS, agentBudgetMs, agentCallBudgetMs, DEFAULT_AGENT_BUDGET_MS } from '../pipeline/agent-budgets.mjs'
-import { createMfContext } from '../pipeline/agents.mjs'
+import { createMfContext, mfCallOptions } from '../pipeline/agents.mjs'
 
 const ENV = {
   MF_API_URL: 'https://api.manyfold.ai/api',
@@ -52,4 +52,35 @@ test('createMfContext carries the role budget the supervisor sizes against', () 
   assert.equal(createMfContext(ENV, 'theme').timeoutMs, agentCallBudgetMs('Theme Designer Agent'))
   // All private connectors run through the single context peer.
   assert.equal(createMfContext(ENV, 'context').timeoutMs, agentCallBudgetMs('Travel Context Agent'))
+})
+
+test('a context spends one role budget in total, however many calls it makes', () => {
+  const ctx = createMfContext(ENV, 'composer')
+  const first = mfCallOptions(ctx)
+  // The language policy in agents/trip.mjs runs a second full call after the
+  // first has already spent its budget. Before deadlineAt existed, that second
+  // call got a fresh timeoutMs and the composer could run to 2x its allowance:
+  // 2 x 460s against a 600s TripJob lease, so the lease expired mid-flight and
+  // the task was re-dispatched while the first session was still billing.
+  const pretendSpent = first.timeoutMs - 30_000
+  const laterCtx = { ...ctx, deadlineAt: ctx.deadlineAt - pretendSpent }
+  const second = mfCallOptions(laterCtx)
+  assert.ok(
+    second.timeoutMs < first.timeoutMs,
+    `a later call must get the remaining budget, got ${second.timeoutMs} vs ${first.timeoutMs}`,
+  )
+  assert.ok(second.deadlineAt <= first.deadlineAt, 'the deadline must not move outwards')
+})
+
+test('every role budget still fits inside the TripJob lease', () => {
+  // The lease is what re-dispatches a task; a role allowed to outlive it can
+  // have two billed sessions running at once.
+  const LEASE_MS = 10 * 60_000
+  for (const role of ['brief', 'discovery', 'composer', 'theme']) {
+    const ctx = createMfContext(ENV, role)
+    assert.ok(
+      ctx.deadlineAt - Date.now() < LEASE_MS,
+      `${role} budget ${ctx.deadlineAt - Date.now()}ms must stay under the ${LEASE_MS}ms lease`,
+    )
+  }
 })

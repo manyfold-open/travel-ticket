@@ -91,8 +91,24 @@ const DISPLAY_NAMES: Partial<Record<TripTaskName, string>> = {
   theme: 'Theme Designer Agent',
 }
 
+/**
+ * Agent-backed tasks get fewer attempts than deterministic ones.
+ *
+ * Each retry of an agent task is a billed session and up to eight minutes of
+ * user wait. With a resilient stream and bounded recovery underneath, a failure
+ * that survived the whole call budget is rarely transient. timezone and render
+ * are cheap, deterministic and bill nothing, so they keep three.
+ */
+const MAX_ATTEMPTS: Partial<Record<TripTaskName, number>> = {
+  brief: 2,
+  discovery: 2,
+  context: 2,
+  composer: 2,
+  theme: 2,
+}
+
 function newTask(id: TripTaskName): TaskRecord {
-  return { id, phase: 'pending', attempts: 0, maxAttempts: 3, availableAt: 0 }
+  return { id, phase: 'pending', attempts: 0, maxAttempts: MAX_ATTEMPTS[id] ?? 3, availableAt: 0 }
 }
 
 function shortError(error: unknown): string {

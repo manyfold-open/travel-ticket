@@ -507,6 +507,7 @@ async function executeCredentialAttempt(env, credential, peerId, body, deadline,
     body,
   }, Math.max(1_000, deadline - Date.now()))
 
+  let accepted = false
   let data
   let interrupted
   const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
@@ -533,6 +534,7 @@ async function executeCredentialAttempt(env, credential, peerId, body, deadline,
   if ((state === 'submitted' || state === 'working') && !id) {
     throw new A2AError(`Agent ${peerId} returned state "${state}" without a task id.`, true)
   }
+  if (id) accepted = true
   if (id && (state === 'submitted' || state === 'working' || !state)) {
     if (!interrupted && state) onTaskState?.(state, id)
     data = await recoverTask(env, credential, peerId, id, deadline, onTaskState, refreshCredential, state)
@@ -540,9 +542,17 @@ async function executeCredentialAttempt(env, credential, peerId, body, deadline,
   }
 
   const terminal = terminalTaskError(data, peerId)
-  if (terminal) throw terminal
+  if (terminal) {
+    // Mark it so the retry loop cannot re-send a prompt this agent already ran.
+    if (accepted) terminal.accepted = true
+    throw terminal
+  }
   const output = extractAgentText(data).trim()
-  if (!output) throw new A2AError(`Agent ${peerId} completed without text output.`, true)
+  if (!output) {
+    const error = new A2AError(`Agent ${peerId} completed without text output.`, true)
+    if (accepted) error.accepted = true
+    throw error
+  }
   return output
 }
 
@@ -597,7 +607,12 @@ export async function callMfAgent(env, peerId, prompt, options = {}) {
   // timeoutMs is the budget for the whole call, not per attempt: the caller's
   // supervisor is sized against this number, so N attempts must not be able to
   // spend N × timeoutMs behind its back.
-  const deadline = Date.now() + timeoutMs
+  //
+  // deadlineAt is an outer bound shared by every call made against one context.
+  // Without it a caller that retries a whole call (the language policy does)
+  // gets a fresh timeoutMs each time and can run to 2x the role's budget,
+  // straight past the Durable Object lease that was sized against 1x.
+  const deadline = Math.min(Date.now() + timeoutMs, options.deadlineAt ?? Number.POSITIVE_INFINITY)
   let lastError
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -607,6 +622,9 @@ export async function callMfAgent(env, peerId, prompt, options = {}) {
       const failure = normalizeError(error)
       lastError = failure
       if (failure.refreshCredential) forgetPeerToken(env, peerId)
+      // Once the agent accepted the message, the turn has been billed. A retry
+      // would send the same prompt again and buy a second one.
+      if (failure.accepted) throw failure
       if (!failure.retryable || attempt >= attempts) throw failure
       const delay = retryDelay(failure, attempt, options.retryDelayMs)
       // Only retry if a fresh attempt has room to finish inside the budget.
@@ -623,7 +641,7 @@ export async function callA2AAgent(credential, prompt, options = {}) {
   const attempts = Math.min(2, Math.max(1, options.attempts ?? 1))
   const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
   const peerId = options.peerId ?? 'external Manyfold agent'
-  const deadline = Date.now() + timeoutMs
+  const deadline = Math.min(Date.now() + timeoutMs, options.deadlineAt ?? Number.POSITIVE_INFINITY)
   let lastError
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -639,6 +657,7 @@ export async function callA2AAgent(credential, prompt, options = {}) {
     } catch (error) {
       const failure = normalizeError(error)
       lastError = failure
+      if (failure.accepted) throw failure
       if (!failure.retryable || attempt >= attempts) throw failure
       const delay = retryDelay(failure, attempt, options.retryDelayMs)
       if (deadline - Date.now() - delay < MIN_RETRY_ROOM_MS) throw failure

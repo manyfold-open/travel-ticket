@@ -171,3 +171,47 @@ test('allows a loopback agent outside production and strips the fragment', () =>
     'https://api.manyfold.ai/api/a2a/agents/x/rpc',
   )
 })
+
+test('a failed task that was accepted is not retried, however many attempts remain', () => {
+  const sends = []
+  return withFetch(async (url, opts) => {
+    if (String(url).includes('/token')) {
+      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    }
+    const method = JSON.parse(opts.body).method
+    if (method === 'message/stream') sends.push(method)
+    // The agent ran the turn and it failed. That turn is billed; sending the
+    // same prompt again would simply buy a second one.
+    return streamOf([frame({
+      kind: 'status-update',
+      taskId: 'burned',
+      status: { state: 'failed', message: { parts: [{ text: 'runtime exited 1' }] } },
+      final: true,
+    })])
+  }, async () => {
+    await assert.rejects(
+      () => callMfAgent(ENV, 'agt_burned', 'hello', { attempts: 3, retryDelayMs: 0 }),
+      /runtime exited 1/,
+    )
+    assert.equal(sends.length, 1, 'an accepted task must never be re-sent')
+  })
+})
+
+test('a failure before acceptance still retries', () => {
+  let sends = 0
+  return withFetch(async (url) => {
+    if (String(url).includes('/token')) {
+      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    }
+    sends += 1
+    if (sends === 1) return new Response('upstream busy', { status: 503 })
+    return streamOf([
+      frame({ kind: 'artifact-update', taskId: 'ok', artifact: { artifactId: 'a', parts: [{ text: 'recovered' }] } }),
+      frame({ kind: 'status-update', taskId: 'ok', status: { state: 'completed' } }),
+    ])
+  }, async () => {
+    // Nothing was accepted on the first try, so no turn was billed.
+    assert.equal(await callMfAgent(ENV, 'agt_pre', 'hello', { attempts: 2, retryDelayMs: 0 }), 'recovered')
+    assert.equal(sends, 2)
+  })
+})
