@@ -125,6 +125,27 @@ test('handleFetch: legacy GET /api/trips/:id/status remains available', async ()
 
 test('handleFetch: POST /api/trips/:id/start is idempotent and starts a draft', async () => {
   const env = makeEnv()
+  // Starting a trip now requires connected agents; without them the route
+  // answers 409 manyfold_reconnect_required instead of queueing.
+  await env.TRIPS_KV.put('mf:connection:v1', JSON.stringify({
+    v: 1,
+    updatedAt: '2026-08-11T00:00:00.000Z',
+    userEmail: null,
+    agents: [{
+      agentId: 'agt_one',
+      name: 'Test agent',
+      description: '',
+      rpcUrl: 'https://rpc.example/agt_one',
+      tokenCt: 'ct',
+      tokenIv: 'iv',
+      expiresAt: null,
+      verified: true,
+      warning: null,
+      connectedAt: '2026-08-11T00:00:00.000Z',
+    }],
+    roles: { brief: 'agt_one', discovery: 'agt_one', composer: 'agt_one', theme: 'agt_one' },
+    roleMode: 'auto',
+  }))
   env.TRIP_JOBS.statuses.set('trip_test', { phase: 'draft', trip_id: 'trip_test' })
   env.TRIP_JOBS.owners.set('trip_test', 'visitor_abcdef01')
   const res = await handleFetch(

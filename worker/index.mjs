@@ -8,12 +8,12 @@ import {
   handleTripConnectorsStatus,
 } from './routes/connect.mjs'
 import { handleConfig } from './routes/config.mjs'
-import { handleManyfoldAgentLink, handleManyfoldAgentStatus } from './routes/agent.mjs'
 import { handleStartTrip, handleTripStatus } from './routes/status.mjs'
 import {
   handleAdminSettings,
   isAdminSettingsPath,
 } from './admin/settings.mjs'
+import { handleMfConnect, isMfConnectPath } from './routes/mf-connect.mjs'
 import {
   guardTravelTicketAccess,
   handleTravelTicketAccess,
@@ -25,7 +25,7 @@ import { getTripFile } from './storage.mjs'
 
 const TRIP_ID_RE = /^[A-Za-z0-9_-]{8,128}$/
 const PAGE_METHODS = ['GET', 'HEAD']
-const SETTINGS_ASSET_PATHS = new Set(['/settings.css', '/settings.js'])
+const SETTINGS_ASSET_PATHS = new Set(['/settings.css', '/settings.js', '/agent-picker.js'])
 
 function validTripId(value) {
   return typeof value === 'string' && TRIP_ID_RE.test(value)
@@ -78,15 +78,6 @@ async function routeApi(request, env, segments) {
   if (segments.length === 3 && segments[2] === 'start') {
     if (request.method !== 'POST') return methodNotAllowed(['POST'])
     return handleStartTrip(request, env, tripId)
-  }
-
-  if (segments.length === 3 && segments[2] === 'agent') {
-    if (request.method !== 'GET') return methodNotAllowed(['GET'])
-    return handleManyfoldAgentStatus(request, env, tripId)
-  }
-  if (segments.length === 4 && segments[2] === 'agent' && segments[3] === 'link') {
-    if (request.method !== 'POST') return methodNotAllowed(['POST'])
-    return handleManyfoldAgentLink(request, env, tripId)
   }
 
   // Compatibility alias for clients deployed before the route redesign.
@@ -179,6 +170,8 @@ export async function handleFetch(request, env) {
   const segments = pathname.split('/').filter(Boolean)
 
   if (isAdminSettingsPath(pathname)) return handleAdminSettings(request, env)
+  // Ahead of the access gate: connecting an agent is how the app becomes ready.
+  if (isMfConnectPath(pathname)) return handleMfConnect(request, env)
 
   if (pathname === '/settings.html' || pathname === '/settings/') {
     if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })

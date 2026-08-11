@@ -14,6 +14,27 @@ const json = (res, body, status = 200) => {
 
 const a2a = (res, body) => json(res, { result: { parts: [{ text: JSON.stringify(body) }] } })
 
+// The client now asks for text/event-stream. Answering with a real SSE stream
+// means local development exercises the streaming and artifact-accumulation
+// path rather than the plain-JSON fallback, which is where the bugs live.
+const a2aStream = (res, body) => {
+  const taskId = `mock-${Date.now()}`
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+  })
+  const frame = result => res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: 'rpc', result })}\r\n\r\n`)
+  frame({ kind: 'status-update', taskId, status: { state: 'working' } })
+  // Two chunks with append, so the accumulator is genuinely exercised.
+  const text = JSON.stringify(body)
+  const split = Math.ceil(text.length / 2)
+  frame({ kind: 'artifact-update', taskId, artifact: { artifactId: 'answer', parts: [{ kind: 'text', text: text.slice(0, split) }] }, append: false })
+  frame({ kind: 'artifact-update', taskId, artifact: { artifactId: 'answer', parts: [{ kind: 'text', text: text.slice(split) }] }, append: true })
+  frame({ kind: 'status-update', taskId, status: { state: 'completed' }, final: true })
+  res.end()
+}
+
 function connectorResponse(prompt) {
   const result = payload()
   return result
@@ -161,18 +182,97 @@ export function agentReply(prompt) {
   return {}
 }
 
+// One in-memory connect handshake, so local development exercises the real
+// device-code flow rather than a shortcut.
+const connectSessions = new Map()
+
 export function startMockServer() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`)
-    if (req.method === 'POST' && url.pathname.startsWith('/api/agent-self/a2a/peers/')) {
-      json(res, { token: 'local-manyfold-token', rpcUrl: `http://127.0.0.1:${port}/a2a` })
+
+    if (req.method === 'POST' && url.pathname === '/api/connect/a2a/start') {
+      const deviceCode = `mock-device-${Date.now()}`
+      const userCode = 'MOCK-1234'
+      connectSessions.set(deviceCode, { approved: false, userCode })
+      json(res, {
+        requestId: `mock-req-${Date.now()}`,
+        userCode,
+        authUrl: `http://127.0.0.1:${port}/consent?device=${encodeURIComponent(deviceCode)}`,
+        deviceCode,
+        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      })
+      return
+    }
+
+    // Stands in for Manyfold's own consent page, including showing the
+    // confirmation code the operator is supposed to compare.
+    if (req.method === 'GET' && url.pathname === '/consent') {
+      const deviceCode = url.searchParams.get('device') || ''
+      const session = connectSessions.get(deviceCode)
+      if (!session) {
+        res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' })
+        res.end('<p>Unknown authorization request.</p>')
+        return
+      }
+      session.approved = true
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      res.end(`<!doctype html><meta charset="utf-8"><title>Mock Manyfold consent</title>`
+        + `<body style="font:16px system-ui;padding:2rem">`
+        + `<h1>Approved</h1><p>Confirmation code <strong>${session.userCode}</strong></p>`
+        + `<p>Local mock. Return to Travel Ticket; it will pick this up on the next poll.</p>`)
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/connect/a2a/poll') {
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const deviceCode = JSON.parse(raw || '{}').deviceCode
+      const session = connectSessions.get(deviceCode)
+      if (!session) {
+        json(res, { error: { message: 'deviceCode not found' } }, 404)
+        return
+      }
+      if (!session.approved) {
+        json(res, { status: 'pending' })
+        return
+      }
+      // Credentials are released exactly once.
+      connectSessions.delete(deviceCode)
+      json(res, {
+        status: 'approved',
+        userEmail: 'local@mock.test',
+        agents: [{
+          agentId: 'mock-agent',
+          name: 'Local Mock Agent',
+          rpcUrl: `http://127.0.0.1:${port}/a2a`,
+          cardUrl: `http://127.0.0.1:${port}/card`,
+          token: 'local-manyfold-token',
+          expiresAt: null,
+        }],
+      })
+      return
+    }
+
+    if (req.method === 'GET' && url.pathname === '/card') {
+      json(res, { name: 'Local Mock Agent', description: 'Local Manyfold mock agent.' })
       return
     }
     if (req.method === 'POST' && url.pathname === '/a2a') {
       let body = ''
       for await (const chunk of req) body += chunk
-      const prompt = JSON.parse(body).params?.message?.parts?.map(part => part.text || '').join('\n') || ''
-      a2a(res, agentReply(prompt))
+      const rpc = JSON.parse(body)
+      const prompt = rpc.params?.message?.parts?.map(part => part.text || '').join('\n') || ''
+      if (rpc.method === 'tasks/cancel') {
+        json(res, { result: { id: rpc.params?.id, status: { state: 'canceled' } } })
+        return
+      }
+      if (rpc.method === 'tasks/get') {
+        json(res, { result: { id: rpc.params?.id, status: { state: 'completed' }, parts: [{ text: JSON.stringify(agentReply(prompt)) }] } })
+        return
+      }
+      const wantsStream = (req.headers.accept || '').includes('text/event-stream')
+      if (wantsStream) a2aStream(res, agentReply(prompt))
+      else a2a(res, agentReply(prompt))
       return
     }
     json(res, { ok: true, service: 'local-manyfold-mock' })

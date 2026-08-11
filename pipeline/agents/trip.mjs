@@ -1,4 +1,4 @@
-import { runMfJson } from '../mf-client.mjs'
+import { runA2AJson } from '../mf-client.mjs'
 import { MODEL, mfCallOptions, parseStructured } from './runtime.mjs'
 import { BRIEF_SCHEMA, COMPOSER_SCHEMA, DISCOVERY_SCHEMA } from './schemas.mjs'
 import { languagePromptInstructions, normalizeLanguage, normalizeLanguageOutput, assertLanguageOutput } from '../language.mjs'
@@ -11,7 +11,7 @@ export async function runTripBriefAgent(ctx, sentence, todayIso, language = 'en-
   const system = `${BRIEF_SYSTEM}\n${languagePromptInstructions(normalLanguage)}`
   const call = async (retry = false) => {
     const retryText = retry ? '\nPrevious output failed the language policy. Return a corrected JSON object.' : ''
-    if (ctx.backend === 'mf') return runMfJson(ctx.env, ctx.peerId, { system, prompt: prompt + retryText, schema: BRIEF_SCHEMA }, mfCallOptions(ctx))
+    if (ctx.backend === 'a2a') return runA2AJson(ctx.credential, { system, prompt: prompt + retryText, schema: BRIEF_SCHEMA }, mfCallOptions(ctx))
     const response = await ctx.client.messages.create({
       model: MODEL, max_tokens: 4096, thinking: { type: 'adaptive' },
       output_config: { effort: 'medium', format: { type: 'json_schema', schema: BRIEF_SCHEMA } },
@@ -33,7 +33,7 @@ export async function runLocalDiscoveryAgent(ctx, brief) {
   const system = `${DISCOVERY_SYSTEM}\n${languagePromptInstructions(language)}`
   const call = async (retry = false) => {
     const retryText = retry ? '\nPrevious output failed the language policy. Return corrected JSON.' : ''
-    if (ctx.backend === 'mf') return runMfJson(ctx.env, ctx.peerId, { system, prompt: prompt + retryText, schema: DISCOVERY_SCHEMA }, mfCallOptions(ctx))
+    if (ctx.backend === 'a2a') return runA2AJson(ctx.credential, { system, prompt: prompt + retryText, schema: DISCOVERY_SCHEMA }, mfCallOptions(ctx))
     const stream = ctx.client.messages.stream({
     model: MODEL,
     max_tokens: 16000,
@@ -78,7 +78,7 @@ export async function runComposerAgent(ctx, { sentence, brief, timezone, discove
   const system = `${COMPOSER_SYSTEM}\n${languagePromptInstructions(language)}\nRequested output language: ${language}`
   const call = async (retry = false) => {
     const retryText = retry ? '\nPrevious output failed the language policy. Return corrected JSON.' : ''
-    if (ctx.backend === 'mf') return runMfJson(ctx.env, ctx.peerId, { system, prompt: prompt + retryText, schema: COMPOSER_SCHEMA }, mfCallOptions(ctx))
+    if (ctx.backend === 'a2a') return runA2AJson(ctx.credential, { system, prompt: prompt + retryText, schema: COMPOSER_SCHEMA }, mfCallOptions(ctx))
     const stream = ctx.client.messages.stream({
     model: MODEL,
     max_tokens: 32000,

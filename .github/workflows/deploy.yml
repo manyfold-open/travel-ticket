@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+  # Validation-only on pull requests. The deploy job below is gated to pushes,
+  # so a PR can be checked before it is merged; without this, the first time CI
+  # ran on a change was after it had already reached production.
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -44,6 +50,7 @@ jobs:
   deploy:
     name: Deploy
     needs: validate
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -93,6 +100,24 @@ jobs:
           fi
           printf '%s' "$ADMIN_SETTINGS_PASSWORD" \
             | npx wrangler secret put ADMIN_SETTINGS_PASSWORD
+
+      # Seals the stored Manyfold agent credentials. Required rather than
+      # optional: without it the Worker generates a key into KV, and KV has no
+      # put-if-absent, so two concurrent cold requests can seal under different
+      # keys and one record becomes unreadable.
+      - name: Configure Manyfold connect key
+        env:
+          MF_CONNECT_KEY: ${{ secrets.MF_CONNECT_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NO_COLOR: "1"
+        run: |
+          if [ -z "$MF_CONNECT_KEY" ]; then
+            echo "::error::Missing production secret MF_CONNECT_KEY"
+            exit 1
+          fi
+          printf '%s' "$MF_CONNECT_KEY" \
+            | npx wrangler secret put MF_CONNECT_KEY
 
       - name: Smoke test production
         run: npm run smoke -- "$PRODUCTION_URL"

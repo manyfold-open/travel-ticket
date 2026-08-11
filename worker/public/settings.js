@@ -119,9 +119,254 @@
     logout.classList.remove('hidden')
   }
 
+  // ── Manyfold connect ──────────────────────────────────────────────────────
+  // Agents are authorized on Manyfold's own page. This side only ever holds an
+  // opaque connectId; the device code and the bearers stay on the server.
+  const mfApi = '/api/admin/manyfold'
+  const agentsRoot = document.querySelector('#agents')
+  const rolesRoot = document.querySelector('#roles')
+  const connectBanner = document.querySelector('#connect-banner')
+  const connectPending = document.querySelector('#connect-pending')
+  const connectCode = document.querySelector('#connect-code')
+  const connectOpen = document.querySelector('#connect-open')
+  const connectStart = document.querySelector('#connect-start')
+  const connectCancel = document.querySelector('#connect-cancel')
+  const connectMessage = document.querySelector('#connect-message')
+
+  const POLL_INTERVAL_MS = 2_000
+  const EXPIRY_WARNING_MS = 24 * 60 * 60_000
+  let pollTimer = null
+  let activeConnectId = null
+  const pickers = new Map()
+
+  const relativeExpiry = (iso) => {
+    if (!iso) return 'no expiry'
+    const remaining = Date.parse(iso) - Date.now()
+    if (!Number.isFinite(remaining)) return 'no expiry'
+    if (remaining <= 0) return 'expired'
+    const days = Math.floor(remaining / 86_400_000)
+    if (days >= 1) return `expires in ${days} day${days === 1 ? '' : 's'}`
+    const hours = Math.max(1, Math.round(remaining / 3_600_000))
+    return `expires in ${hours} hour${hours === 1 ? '' : 's'}`
+  }
+
+  const runAgentAction = async (action, success) => {
+    setMessage(connectMessage, 'Working…')
+    try {
+      renderConnect(await action())
+      setMessage(connectMessage, success, 'success')
+    } catch (error) {
+      setMessage(connectMessage, error.message, 'error')
+    }
+  }
+
+  const agentCard = (agent) => {
+    const card = document.createElement('div')
+    card.className = 'agent-card'
+
+    const name = document.createElement('strong')
+    const dot = document.createElement('i')
+    dot.className = `dot${agent.verified ? '' : ' warn'}`
+    name.append(dot, document.createTextNode(agent.name))
+
+    const meta = document.createElement('span')
+    meta.className = 'agent-meta'
+    meta.textContent = `${agent.verified ? 'verified' : 'not verified'} · ${relativeExpiry(agent.expiresAt)}`
+
+    const description = document.createElement('p')
+    description.className = 'agent-description'
+    description.textContent = agent.description || agent.warning || ''
+
+    const actions = document.createElement('div')
+    actions.className = 'agent-actions'
+    const verify = document.createElement('button')
+    verify.type = 'button'
+    verify.className = 'quiet'
+    verify.textContent = 'Re-check'
+    verify.addEventListener('click', () => runAgentAction(
+      () => request(`${mfApi}/agents/${encodeURIComponent(agent.agentId)}/verify`, { method: 'POST', body: '{}' }),
+      `Re-checked ${agent.name}.`,
+    ))
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'quiet danger'
+    remove.textContent = 'Disconnect'
+    remove.addEventListener('click', () => runAgentAction(
+      () => request(`${mfApi}/agents/${encodeURIComponent(agent.agentId)}`, { method: 'DELETE' }),
+      `Disconnected ${agent.name}.`,
+    ))
+    actions.append(verify, remove)
+
+    card.append(name, meta, description, actions)
+    return card
+  }
+
+  const saveRoles = async () => {
+    setMessage(connectMessage, 'Saving roles…')
+    const roles = {}
+    for (const [role, picker] of pickers) roles[role] = picker.element.value || null
+    try {
+      renderConnect(await request(`${mfApi}/roles`, { method: 'PUT', body: JSON.stringify({ roles }) }))
+      setMessage(connectMessage, 'Roles saved.', 'success')
+    } catch (error) {
+      setMessage(connectMessage, error.message, 'error')
+      await loadConnect()
+    }
+  }
+
+  function renderConnect(state) {
+    const agents = state.agents || []
+    const roles = state.roles || {}
+    const labels = state.role_labels || {}
+
+    agentsRoot.replaceChildren(...(agents.length
+      ? agents.map(agentCard)
+      : [Object.assign(document.createElement('p'), {
+          className: 'empty',
+          textContent: 'No agents connected. Trips cannot be started yet.',
+        })]))
+
+    // Pickers are rebuilt from scratch on every render rather than mutated:
+    // each one owns closures over its option list, so a reused element would
+    // keep the old options and quietly stop matching what was saved.
+    pickers.clear()
+    const options = [
+      ...agents.map((agent) => ({
+        value: agent.agentId,
+        label: agent.name,
+        hint: agent.verified ? '' : 'not verified',
+      })),
+      { value: '', label: '— not assigned —' },
+    ]
+    rolesRoot.replaceChildren(...Object.keys(labels).map((role) => {
+      const row = document.createElement('div')
+      row.className = 'role-row'
+      const caption = document.createElement('span')
+      caption.className = 'role-label'
+      caption.textContent = labels[role]
+      const picker = window.createAgentDropdown({
+        id: `mf-role-${role}`,
+        label: `${labels[role]} agent`,
+        options,
+        value: roles[role] || '',
+        onChange: saveRoles,
+      })
+      pickers.set(role, picker)
+      row.append(caption, picker.element)
+      return row
+    }))
+
+    const notices = []
+    const unassigned = Object.keys(labels).filter((role) => !roles[role])
+    if (unassigned.length) {
+      notices.push(`${unassigned.length} role(s) have no agent assigned; trips cannot start until they do.`)
+    }
+    const soonest = agents
+      .map((agent) => (agent.expiresAt ? Date.parse(agent.expiresAt) : Infinity))
+      .sort((a, b) => a - b)[0]
+    if (Number.isFinite(soonest) && soonest - Date.now() < EXPIRY_WARNING_MS) {
+      notices.push('An agent authorization expires within 24 hours. Reconnect to rotate it.')
+    }
+    connectBanner.textContent = notices.join(' ')
+    connectBanner.classList.toggle('hidden', !notices.length)
+
+    if (state.session) {
+      activeConnectId = state.session.connectId
+      connectCode.textContent = state.session.userCode
+      connectOpen.href = state.session.authUrl
+      connectPending.classList.remove('hidden')
+      startPolling()
+    } else {
+      connectPending.classList.add('hidden')
+      stopPolling()
+    }
+  }
+
+  const loadConnect = async () => {
+    try {
+      renderConnect(await request(`${mfApi}/agents`))
+    } catch (error) {
+      setMessage(connectMessage, error.message, 'error')
+    }
+  }
+
+  function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer)
+    pollTimer = null
+  }
+
+  // Serial, not an interval: overlapping polls would race to redeem a one-time
+  // credential and only one can win.
+  function startPolling() {
+    stopPolling()
+    pollTimer = setTimeout(async () => {
+      if (!activeConnectId) return
+      try {
+        const outcome = await request(`${mfApi}/connect/${encodeURIComponent(activeConnectId)}/poll`, {
+          method: 'POST',
+          body: '{}',
+        })
+        if (outcome.status === 'pending') {
+          startPolling()
+          return
+        }
+        activeConnectId = null
+        if (outcome.status === 'approved') {
+          const failed = outcome.failed || []
+          setMessage(
+            connectMessage,
+            failed.length
+              ? `Connected ${outcome.agents.length} agent(s); ${failed.length} refused: ${failed.map((f) => `${f.name} (${f.error})`).join('; ')}`
+              : `Connected ${outcome.agents.length} agent(s).`,
+            failed.length ? 'error' : 'success',
+          )
+          renderConnect(outcome)
+        } else {
+          setMessage(connectMessage, `Authorization ${outcome.status}.`, 'error')
+          await loadConnect()
+        }
+      } catch (error) {
+        activeConnectId = null
+        setMessage(connectMessage, error.message, 'error')
+        await loadConnect()
+      }
+    }, POLL_INTERVAL_MS)
+  }
+
+  connectStart.addEventListener('click', async () => {
+    connectStart.disabled = true
+    setMessage(connectMessage, 'Starting…')
+    try {
+      const session = await request(`${mfApi}/connect`, { method: 'POST', body: '{}' })
+      activeConnectId = session.connectId
+      connectCode.textContent = session.userCode
+      connectOpen.href = session.authUrl
+      connectPending.classList.remove('hidden')
+      window.open(session.authUrl, '_blank', 'noopener')
+      setMessage(connectMessage, 'Waiting for approval on Manyfold…')
+      startPolling()
+    } catch (error) {
+      setMessage(connectMessage, error.message, 'error')
+    } finally {
+      connectStart.disabled = false
+    }
+  })
+
+  connectCancel.addEventListener('click', async () => {
+    stopPolling()
+    const id = activeConnectId
+    activeConnectId = null
+    connectPending.classList.add('hidden')
+    setMessage(connectMessage, 'Cancelled.')
+    if (id) {
+      try { await request(`${mfApi}/connect/${encodeURIComponent(id)}`, { method: 'DELETE' }) } catch {}
+    }
+  })
+
   const load = async () => {
     try {
       render(await request(settingsApi))
+      await loadConnect()
       return true
     } catch (error) {
       if (error.status !== 401) setMessage(loginMessage, error.message, 'error')

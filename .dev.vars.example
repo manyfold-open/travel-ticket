@@ -2,4 +2,13 @@
 # Use a long, random value and keep the real .dev.vars file uncommitted.
 ADMIN_SETTINGS_PASSWORD=replace-with-a-long-random-password
 
+# Seals the Manyfold agent credentials obtained through the connect flow.
+# Deliberately separate from ADMIN_SETTINGS_PASSWORD: rotating the admin
+# password should not cost every agent authorization. At least 32 characters.
+#   npx wrangler secret put MF_CONNECT_KEY
+MF_CONNECT_KEY=replace-with-a-long-random-connect-key
+
+# Local development: leave ENVIRONMENT unset (or 'development') so the
+# rpcUrl check permits a loopback mock agent.
+
 # Configure the required six-digit application access code from /settings.

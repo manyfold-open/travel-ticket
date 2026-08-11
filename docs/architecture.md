@@ -51,7 +51,6 @@ flowchart LR
 | `/api/trips/:id` | GET | 获取 trip 和 workflow 状态 |
 | `/api/trips/:id/start` | POST | 幂等启动 draft |
 | `/api/trips/:id/agent` | GET | 预留的 Manyfold host-agent binding 状态 |
-| `/api/trips/:id/agent/link` | POST | 预留的 External Client 兼容入口 |
 | `/api/trips/:id/connectors` | GET | 获取全部 connector 状态 |
 | `/api/trips/:id/connectors/:provider` | GET | 查询单个 connector |
 | `/api/trips/:id/connectors/:provider/link` | POST | 兼容入口；提示回 Manyfold 完成 provider setup |
@@ -75,7 +74,8 @@ API 返回 401 `ACCESS_REQUIRED`。口令尚未配置时 API 使用 503
 2. 浏览器读取 `/api/config`。Manyfold 未配置完整时，出票按钮不可用。
 3. `POST /api/trips` 执行 Workers Rate Limiting。
 4. Worker 创建以 `tripId` 命名的 draft `TripJob`。
-5. 浏览器立即调用 `POST /api/trips/:id/start`，不要求 External Client。
+5. 浏览器立即调用 `POST /api/trips/:id/start`。若 operator 尚未在 `/settings`
+   连接 Manyfold agents，该呼叫会回 409 `manyfold_reconnect_required`。
 6. `TripJob` 发布可运行任务；Queue consumer 取得租约并调用已配置的 pipeline agents。
 7. Private Context task 记录 skipped 和空 context，不发出 A2A connector 请求。
 8. 浏览器在 `/trips/:id/progress` 轮询 canonical trip resource。
@@ -94,7 +94,7 @@ API 返回 401 `ACCESS_REQUIRED`。口令尚未配置时 API 使用 503
 Queue 消息不携带 prompt、connector 数据或任务输出。外部任务执行所需数据从
 Durable Object claim 读取，避免消息重复投递导致状态分叉。
 
-Travel Ticket 当前不保存或传递 Composio credentials，也不保存 External Client
+Travel Ticket 当前不保存或传递 Composio credentials，也不保存 trip-scoped
 credential。Private Context 仅以空 context 进入 Composer，当前不保存 host-agent binding
 或 normalized private context。
 

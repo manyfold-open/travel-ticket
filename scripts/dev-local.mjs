@@ -31,14 +31,10 @@ const workerArgs = [
   'wrangler', 'dev', '--port', workerPort, '--persist-to', '.wrangler/local-mock',
   '--var', 'ADMIN_SETTINGS_PASSWORD:local-admin',
   '--var', 'ACCESS_PASSCODE:123456',
-  '--var', 'MF_API_URL:http://127.0.0.1:8789/api',
-  '--var', 'MF_API_TOKEN:local-manyfold-token',
-  '--var', 'MF_AGENT_ID:mock-source',
-  '--var', 'AGENT_BRIEF:mock-brief',
-  '--var', 'AGENT_DISCOVERY:mock-discovery',
-  '--var', 'AGENT_CONTEXT_EXTRACTOR:mock-context',
-  '--var', 'AGENT_COMPOSER:mock-composer',
-  '--var', 'AGENT_THEME_DESIGNER:mock-theme',
+  '--var', 'MANYFOLD_API_BASE_URL:http://127.0.0.1:8789',
+  // Not 'production', so validateA2AUrl accepts the loopback mock agent.
+  '--var', 'ENVIRONMENT:development',
+  '--var', 'MF_CONNECT_KEY:local-development-connect-key-not-a-secret',
 ]
 
 const mock = spawn(process.execPath, ['scripts/mock-manyfold-agent.mjs'], { stdio: 'inherit' })

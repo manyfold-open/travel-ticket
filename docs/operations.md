@@ -34,8 +34,8 @@ ADMIN_SETTINGS_PASSWORD=replace-with-a-long-random-password
 | 分类 | 配置 |
 |---|---|
 | Access | 必填的 6 位应用访问口令 |
-| Manyfold | API URL、source agent、API token，以及 Brief、Discovery、Composer、Theme role peers |
-| Private context | 当前停用；不要求用户连接 External Client 或配置 Composio |
+| Manyfold | 透过 connect 交握授权的 agent 清单，以及四个角色的指派 |
+| Private context | 当前停用 |
 
 只有 `ADMIN_SETTINGS_PASSWORD` 必须先作为环境 secret 存在。页面保存的配置使用
 AES-GCM 加密后写入 `TRIPS_KV`；secret 字段只返回 configured/source 状态，不回显
@@ -118,14 +118,48 @@ TRAVEL_TICKET_ACCESS_PASSCODE=123456 npm run smoke -- \
 部署后的资源传播可能短暂延迟，脚本会对页面语义做有限重试。运行配置可在部署后
 通过 `/settings` 补齐。
 
+## 连接 Manyfold agents
+
+全新部署没有任何 agent，trip 无法启动。
+
+1. 开启 `/settings` 并以 `ADMIN_SETTINGS_PASSWORD` 登入；
+2. 点 **Connect Manyfold agents**。Manyfold 授权页会开启，设定页会显示一组
+   确认码；
+3. **确认 Manyfold 显示的确认码与设定页一致。** 这是整个流程唯一的反钓鱼检查；
+4. 勾选要分享的 agent，并选择授权天数。建议给宽裕的期限：系统没有 refresh，
+   授权即将到期会直接挡下新的 trip；
+5. 核准。设定页会在几秒内取得凭证并自动指派四个角色；
+6. 检查角色指派。一个 agent 可以担任多个角色。
+
+Agent bearer 以 AES-GCM 封存在 `TRIPS_KV`，永远不会送到浏览器。
+
+旧的 `agt_*` 设定没有迁移路径：旧模型的 peer id 与 connect 的 agent id 属于
+不同的 id 空间，沿用只会在执行期产生死因误导的失败。
+
+### 重新连线
+
+已到期、在 Manyfold 被撤销、或被 agent 拒绝的授权无法从这一侧更新。`/settings`
+会把该 agent 标为未验证，`/api/config` 回报 `needs_reconnect`，新的 trip 会以
+409 `manyfold_reconnect_required` 挡下，而不是让它花掉三个计费 session 后才在
+第四个任务失败。重跑 connect 流程并核准同一个 agent 即可原地轮换 token。
+
+### 金钥轮换
+
+`MF_CONNECT_KEY` 封存 agent 凭证，刻意与 `ADMIN_SETTINGS_PASSWORD` 分开：轮换
+admin 密码不该连带让所有 agent 授权失效。轮换 `MF_CONNECT_KEY` 则必须重新连线
+所有 agent。
+
 ## Readiness
 
 `/api/access/status.ready` 要求 6 位 access code 与
 `ADMIN_SETTINGS_PASSWORD` 同时存在。`/api/config.ready` 只有满足以下条件才为
 `true`：
 
-- Manyfold URL、source agent、token 和四个启用中的 role peers 全部存在。Private
-  context 当前停用，不需要 External Client URL/token。
+- 四个启用中的角色都指派到一个已连线的 agent，且其授权在未来 45 分钟内不会
+  到期（涵盖约 24 分钟的关键路径加上重试）。Private context 当前停用。
+
+`/api/config` 未经认证，因此只回报数量与粗略原因，不会回传 agent 名称、主机
+或任何 token 形状的内容。
 
 Workflow 会直接启动，Private Context Agent 会诚实地标记为 skipped 并使用空 context。
 当前不会读取私人账户资料，也不会启动 provider setup。

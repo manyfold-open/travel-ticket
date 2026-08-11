@@ -76,13 +76,12 @@ test('admin settings: GET never returns a configured secret value', async () => 
   assert.equal(response.status, 200)
   const body = await response.json()
   const passcode = body.fields.find((field) => field.key === 'ACCESS_PASSCODE')
-  const token = body.fields.find((field) => field.key === 'MF_API_TOKEN')
   assert.equal(passcode.configured, true)
   assert.equal(passcode.source, 'environment')
   assert.equal(passcode.value, '')
-  assert.equal(token.configured, true)
-  assert.equal(token.source, 'environment')
-  assert.equal(token.value, '')
+  // Manyfold configuration is no longer a settings field: agents arrive through
+  // the connect handshake, not as pasted ids and a pasted token.
+  assert.deepEqual(body.fields.map((field) => field.key), ['ACCESS_PASSCODE'])
   assert.doesNotMatch(JSON.stringify(body), /token-from-environment/)
 })
 
@@ -95,25 +94,19 @@ test('admin settings: saves encrypted overrides and resolves them for runtime ca
     body: JSON.stringify({
       values: {
         ACCESS_PASSCODE: '654321',
-        MF_API_URL: 'https://gateway.example/api',
-        MF_API_TOKEN: 'token-from-settings',
       },
     }),
   }), env)
   assert.equal(response.status, 200)
 
   const stored = [...env.TRIPS_KV.store.values()][0]
-  assert.doesNotMatch(stored, /token-from-settings/)
-  assert.doesNotMatch(stored, /gateway\.example/)
+  assert.doesNotMatch(stored, /654321/)
 
   const runtime = await resolveRuntimeEnv(env)
-  assert.equal(runtime.MF_API_URL, 'https://gateway.example/api')
-  assert.equal(runtime.MF_API_TOKEN, 'token-from-settings')
   assert.equal(runtime.ACCESS_PASSCODE, '654321')
-  assert.equal(runtime.AGENT_BRIEF, 'agt_brief')
 })
 
-test('admin settings: migrates saved legacy Gemini routing IDs to deployed Codex bindings', async () => {
+test('admin settings: prunes peer-mint configuration so it cannot shadow connect', async () => {
   const env = makeEnv()
   const { cookie } = await login(env)
   const response = await handleAdminSettings(new Request('https://example.com/api/admin/settings', {
@@ -121,24 +114,22 @@ test('admin settings: migrates saved legacy Gemini routing IDs to deployed Codex
     headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
     body: JSON.stringify({
       values: {
-        MF_AGENT_ID: 'agt_agpzmesx6f5prlyvhg77g4arbu',
-        AGENT_BRIEF: 'agt_agpzmetm5ryebfwufjl2h2rb4e',
-        AGENT_DISCOVERY: 'agt_agpzmeuncr33jpcjvlbtf4owmq',
-        AGENT_CONTEXT_EXTRACTOR: 'agt_agpzmevmgr6ktg2ybz57n5icgm',
-        AGENT_COMPOSER: 'agt_agpzmewhejz73kqbpembtejhqi',
-        AGENT_THEME_DESIGNER: 'agt_agpzmexfyb4vrkyev46m5e54fy',
+        ACCESS_PASSCODE: '654321',
+        // Keys from before the cutover. They are no longer fields, so they must
+        // not survive into the runtime env where they would shadow the connect
+        // record with agents nobody connected.
+        MF_API_TOKEN: 'stale-token',
+        MF_AGENT_ID: 'agt_stale_source',
+        AGENT_BRIEF: 'agt_stale_brief',
       },
     }),
   }), env)
   assert.equal(response.status, 200)
 
   const runtime = await resolveRuntimeEnv(env)
-  assert.equal(runtime.MF_AGENT_ID, 'agt_source')
-  assert.equal(runtime.AGENT_BRIEF, 'agt_brief')
-  assert.equal(runtime.AGENT_DISCOVERY, 'agt_discovery')
-  assert.equal(runtime.AGENT_CONTEXT_EXTRACTOR, 'agt_context')
-  assert.equal(runtime.AGENT_COMPOSER, 'agt_composer')
-  assert.equal(runtime.AGENT_THEME_DESIGNER, 'agt_theme')
+  assert.equal(runtime.ACCESS_PASSCODE, '654321')
+  assert.equal(runtime.MF_API_TOKEN, 'token-from-environment')
+  assert.doesNotMatch([...env.TRIPS_KV.store.values()][0], /stale-token/)
 })
 
 test('admin settings: requires an exact 6-digit application access code', async () => {

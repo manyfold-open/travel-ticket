@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { Env, TripAgentBinding, TripAgentCredential, TripJobParams } from './env.d.ts'
+import type { Env, MfRole, SealedCredential, TripAgentBinding, TripAgentCredentials, TripJobParams } from './env.d.ts'
 
 export type TripTaskName =
   | 'brief'
@@ -39,7 +39,20 @@ interface TripJobState {
   error?: string
   manifest?: { slug: string; status: string; page_count: number }
   agentBinding?: TripAgentBinding
-  agentCredential?: TripAgentCredential
+  /**
+   * Sealed per-role credentials, snapshotted when the trip starts.
+   *
+   * The whole DAG runs against one consistent set: a per-task KV read could
+   * see a different record mid-run (KV is eventually consistent and edge
+   * cached), and re-resolving after an operator reconnects would silently mix
+   * credentials across a single trip. They stay sealed here — an open bearer
+   * has no business sitting in Durable Object storage.
+   */
+  agentCredentials?: TripAgentCredentials
+  /** The connection record's updatedAt when the snapshot was taken. */
+  credentialRev?: string
+  /** Set when an agent rejected its stored token and only the operator can fix it. */
+  needsReconnect?: boolean
 }
 
 export interface TripTaskClaim {
@@ -48,7 +61,9 @@ export interface TripTaskClaim {
   retryAfterSeconds?: number
   params?: TripJobParams
   outputs?: Partial<Record<TripTaskName, unknown>>
-  agentCredential?: TripAgentCredential
+  agentCredential?: SealedCredential
+  /** Folded into the A2A messageId so a redelivered attempt cannot double-bill. */
+  attempt?: number
 }
 
 interface TripTaskFailure {
@@ -91,8 +106,24 @@ const DISPLAY_NAMES: Partial<Record<TripTaskName, string>> = {
   theme: 'Theme Designer Agent',
 }
 
+/**
+ * Agent-backed tasks get fewer attempts than deterministic ones.
+ *
+ * Each retry of an agent task is a billed session and up to eight minutes of
+ * user wait. With a resilient stream and bounded recovery underneath, a failure
+ * that survived the whole call budget is rarely transient. timezone and render
+ * are cheap, deterministic and bill nothing, so they keep three.
+ */
+const MAX_ATTEMPTS: Partial<Record<TripTaskName, number>> = {
+  brief: 2,
+  discovery: 2,
+  context: 2,
+  composer: 2,
+  theme: 2,
+}
+
 function newTask(id: TripTaskName): TaskRecord {
-  return { id, phase: 'pending', attempts: 0, maxAttempts: 3, availableAt: 0 }
+  return { id, phase: 'pending', attempts: 0, maxAttempts: MAX_ATTEMPTS[id] ?? 3, availableAt: 0 }
 }
 
 function shortError(error: unknown): string {
@@ -117,11 +148,19 @@ export class TripJob extends DurableObject<Env> {
     return this.snapshot(state)
   }
 
-  async start(): Promise<Record<string, unknown> | null> {
+  async start(
+    credentials?: TripAgentCredentials,
+    credentialRev?: string,
+  ): Promise<Record<string, unknown> | null> {
     const state = this.readState()
     if (!state) return null
     if (state.phase !== 'draft') return this.snapshot(state)
 
+    if (credentials) {
+      state.agentCredentials = credentials
+      state.credentialRev = credentialRev
+      state.needsReconnect = false
+    }
     state.phase = 'queued'
     state.updatedAt = Date.now()
     this.writeState(state)
@@ -133,31 +172,8 @@ export class TripJob extends DurableObject<Env> {
     return this.readState()?.params.visitorId ?? null
   }
 
-  async connectDirectAgent(rpcUrl: string, token: string, agentName?: string): Promise<Record<string, unknown> | null> {
-    const state = this.readState()
-    if (!state || state.phase !== 'draft') return state ? this.snapshot(state) : null
-    state.agentBinding = {
-      status: 'connected',
-      mode: 'direct',
-      ...(agentName ? { agentName } : {}),
-      connectedAt: new Date().toISOString(),
-    }
-    state.agentCredential = { rpcUrl, token }
-    state.params.agentBinding = {
-      mode: 'direct',
-      ...(agentName ? { agentName } : {}),
-    }
-    state.updatedAt = Date.now()
-    this.writeState(state)
-    return this.snapshot(state)
-  }
-
   async getAgentBinding(): Promise<TripAgentBinding | null> {
     return this.readState()?.agentBinding ?? null
-  }
-
-  async getAgentCredential(): Promise<TripAgentCredential | null> {
-    return this.readState()?.agentCredential ?? null
   }
 
   async claim(taskId: TripTaskName): Promise<TripTaskClaim> {
@@ -204,8 +220,41 @@ export class TripJob extends DurableObject<Env> {
       leaseId,
       params: state.params,
       outputs: this.outputs(state),
-      ...(taskId === 'context' && state.agentCredential ? { agentCredential: state.agentCredential } : {}),
+      attempt: task.attempts,
+      ...(state.agentCredentials?.[taskId as MfRole]
+        ? { agentCredential: state.agentCredentials[taskId as MfRole] }
+        : {}),
     }
+  }
+
+  /**
+   * Re-read the connection after an agent rejected its token.
+   *
+   * If the operator has reconnected since this trip started, the record's
+   * updatedAt has moved and the caller gets a fresh credential to retry with
+   * inside the same invocation. Otherwise the trip is marked as needing a
+   * reconnect and told to stop: nothing in this system can re-issue that
+   * credential, so further attempts only burn the lease.
+   */
+  async refreshAgentCredential(
+    role: MfRole,
+    credentials: TripAgentCredentials | null,
+    credentialRev: string | null,
+  ): Promise<SealedCredential | null> {
+    const state = this.readState()
+    if (!state) return null
+    if (credentials && credentialRev && credentialRev !== state.credentialRev) {
+      state.agentCredentials = credentials
+      state.credentialRev = credentialRev
+      state.needsReconnect = false
+      state.updatedAt = Date.now()
+      this.writeState(state)
+      return credentials[role] ?? null
+    }
+    state.needsReconnect = true
+    state.updatedAt = Date.now()
+    this.writeState(state)
+    return null
   }
 
   async complete(taskId: TripTaskName, leaseId: string, output: unknown): Promise<'ok' | 'stale'> {

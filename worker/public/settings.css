@@ -167,3 +167,94 @@ button.quiet { padding: 8px 12px; background: transparent; color: var(--blue); }
   .topbar { margin-bottom: 48px; }
   .login-card::before { display: none; }
 }
+
+/* ── Manyfold connect ──────────────────────────────────────────────────── */
+.manyfold { margin: 36px 0 8px; padding-top: 22px; border-top: 1px solid var(--line); }
+.manyfold > .lede { max-width: 62ch; }
+
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 18px 0; }
+.agent-card { padding: 13px; border: 1px solid var(--line); background: var(--panel); }
+.agent-card strong { display: block; margin-bottom: 5px; }
+.agent-meta { display: block; color: var(--muted); font-size: 12px; }
+.agent-description {
+  margin: 8px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  /* Descriptions are capped server-side but are still text from another system. */
+  overflow-wrap: anywhere;
+}
+.agent-actions { display: flex; gap: 8px; }
+.dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--green); }
+.dot.warn { background: var(--red); }
+.empty { color: var(--muted); }
+.quiet.danger { color: var(--red); }
+
+.connect-pending { margin: 16px 0; padding: 13px; border: 1px solid var(--ink); background: var(--panel); }
+.connect-code { margin: 8px 0 4px; }
+.connect-code strong { letter-spacing: .18em; font-size: 19px; }
+.connect-hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.connect-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.role-grid { display: grid; gap: 10px; margin-top: 20px; max-width: 480px; }
+.role-row { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 12px; }
+.role-label { color: var(--muted); font-size: 13px; }
+
+/* ── The page-owned dropdown (worker/public/agent-picker.js) ───────────── */
+.ui-select { position: relative; display: block; }
+.ui-select-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-select-button:hover { border-color: currentColor; }
+.ui-select-button:focus-visible,
+.ui-select-list [role=option]:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.ui-select-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Drawn, not a glyph: an arrow character would change shape with the font. */
+.ui-select-caret {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+}
+.ui-select.open .ui-select-caret { transform: translateY(1px) rotate(225deg); }
+.ui-select-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 248px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid var(--line);
+  background: #fffdf6;
+  box-shadow: 0 10px 24px rgba(22, 37, 61, .18);
+}
+.ui-select-list [role=option] {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.ui-select-list [role=option]:hover { background: rgba(22, 37, 61, .07); }
+.ui-select-list [role=option].selected { background: rgba(22, 37, 61, .07); font-weight: 700; }
+.ui-select-list [role=option].disabled { color: var(--muted); cursor: not-allowed; }
+.ui-select-hint { color: var(--muted); font-size: 11px; }

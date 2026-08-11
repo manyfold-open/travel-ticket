@@ -2,22 +2,6 @@ const PROJECT_ID = 'travel-ticket'
 const COOKIE_NAME = 'travel_ticket_admin'
 const SETTINGS_KEY = '__admin:runtime-settings:v1'
 const SESSION_TTL_SECONDS = 8 * 60 * 60
-const AGENT_ROUTING_KEYS = [
-  'MF_AGENT_ID',
-  'AGENT_BRIEF',
-  'AGENT_DISCOVERY',
-  'AGENT_COMPOSER',
-  'AGENT_THEME_DESIGNER',
-]
-const LEGACY_GEMINI_AGENT_IDS = new Set([
-  'agt_agpzmesx6f5prlyvhg77g4arbu',
-  'agt_agpzmetm5ryebfwufjl2h2rb4e',
-  'agt_agpzmeuncr33jpcjvlbtf4owmq',
-  'agt_agpzmevmgr6ktg2ybz57n5icgm',
-  'agt_agpzmewhejz73kqbpembtejhqi',
-  'agt_agpzmexfyb4vrkyev46m5e54fy',
-])
-
 const FIELDS = [
   {
     key: 'ACCESS_PASSCODE',
@@ -26,50 +10,6 @@ const FIELDS = [
     secret: true,
     required: true,
     kind: 'passcode',
-  },
-  {
-    key: 'MF_API_URL',
-    label: 'Manyfold API URL',
-    description: 'Manyfold REST API base URL.',
-    required: true,
-    kind: 'url',
-  },
-  {
-    key: 'MF_AGENT_ID',
-    label: 'Manyfold source agent',
-    description: 'Agent identity used when minting peer A2A tokens.',
-    required: true,
-  },
-  {
-    key: 'MF_API_TOKEN',
-    label: 'Manyfold API token',
-    description: 'Secret token for the source agent. Leave blank to keep the current value.',
-    secret: true,
-    required: true,
-  },
-  {
-    key: 'AGENT_BRIEF',
-    label: 'Brief agent',
-    description: 'Peer used to turn the request into a structured trip brief.',
-    required: true,
-  },
-  {
-    key: 'AGENT_DISCOVERY',
-    label: 'Discovery agent',
-    description: 'Peer used for local destination research.',
-    required: true,
-  },
-  {
-    key: 'AGENT_COMPOSER',
-    label: 'Composer agent',
-    description: 'Peer used to assemble the final itinerary.',
-    required: true,
-  },
-  {
-    key: 'AGENT_THEME_DESIGNER',
-    label: 'Theme designer agent',
-    description: 'Peer used to generate custom visual themes.',
-    required: true,
   },
 ]
 const FIELD_KEYS = new Set(FIELDS.map((field) => field.key))
@@ -174,7 +114,7 @@ async function readStoredSettings(env) {
     settings.values = Object.fromEntries(
       Object.entries(settings.values).filter(([key]) => FIELD_KEYS.has(key)),
     )
-    settings.values = migrateLegacyAgentSettings(env, settings.values)
+    settings.values = pruneUnknownValues(settings.values)
     return { settings }
   } catch {
     return {
@@ -188,15 +128,19 @@ function envValue(env, key) {
   return typeof env[key] === 'string' ? env[key] : ''
 }
 
-function migrateLegacyAgentSettings(env, values) {
-  const migrated = { ...values }
-  for (const key of AGENT_ROUTING_KEYS) {
-    const saved = migrated[key]
-    if (!saved || !LEGACY_GEMINI_AGENT_IDS.has(saved)) continue
-    const replacement = envValue(env, key)
-    if (replacement && !LEGACY_GEMINI_AGENT_IDS.has(replacement)) migrated[key] = replacement
-  }
-  return migrated
+/**
+ * Drop saved keys no field owns any more.
+ *
+ * Peer-mint configuration (MF_API_TOKEN, MF_AGENT_ID, the agt_* routing keys)
+ * lingers in blobs written before the connect cutover. Left in place it would
+ * be spread over env by resolveRuntimeEnv and shadow the connect record, so it
+ * is dropped on read and disappears from storage on the next save. This also
+ * replaces the Gemini-to-Codex id migration, which mapped one generation of
+ * dead peer ids onto another when both generations are now gone.
+ */
+function pruneUnknownValues(values) {
+  const known = new Set(FIELDS.map(field => field.key))
+  return Object.fromEntries(Object.entries(values).filter(([key]) => known.has(key)))
 }
 
 function effectiveValue(env, values, key) {
@@ -218,7 +162,8 @@ function cookieValue(request) {
   return null
 }
 
-async function isAuthenticated(request, password) {
+/** Exported so the connect routes reuse this gate instead of adding a second one. */
+export async function isAdminAuthenticated(request, password) {
   const token = cookieValue(request)
   if (!token) return false
   const separator = token.lastIndexOf('.')
@@ -243,7 +188,7 @@ async function makeSession(password) {
   return `${payload}.${await sign(payload, password)}`
 }
 
-function adminJson(body, status = 200, headers) {
+export function adminJson(body, status = 200, headers) {
   const responseHeaders = new Headers(headers)
   responseHeaders.set('content-type', 'application/json; charset=utf-8')
   responseHeaders.set('cache-control', 'no-store')
@@ -251,7 +196,7 @@ function adminJson(body, status = 200, headers) {
   return new Response(JSON.stringify(body), { status, headers: responseHeaders })
 }
 
-function sameOrigin(request) {
+export function sameOrigin(request) {
   const fetchSite = request.headers.get('sec-fetch-site')
   if (fetchSite === 'cross-site') return false
   const origin = request.headers.get('origin')
@@ -333,7 +278,7 @@ export async function handleAdminSettings(request, env) {
     return adminJson({ error: 'method not allowed' }, 405, { allow: 'POST, DELETE' })
   }
 
-  if (!await isAuthenticated(request, password)) {
+  if (!await isAdminAuthenticated(request, password)) {
     return adminJson({ error: 'authentication required' }, 401)
   }
 

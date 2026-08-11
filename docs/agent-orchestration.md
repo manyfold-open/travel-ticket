@@ -20,31 +20,44 @@ flowchart TD
 
 ## Role peers
 
-| 角色 | 配置项 | 任务 |
+| 角色 | role key | 任务 |
 |---|---|---|
-| Source identity | `MF_AGENT_ID` | mint peer credential |
-| Brief | `AGENT_BRIEF` | 将一句话转为结构化 trip brief |
-| Discovery | `AGENT_DISCOVERY` | 目的地资料与来源 |
-| Private context | disabled | 当前使用空 context，不调用 External Client |
-| Composer | `AGENT_COMPOSER` | 合并资料生成 itinerary |
-| Theme designer | `AGENT_THEME_DESIGNER` | 生成自定义视觉 tokens |
+| Brief | `brief` | 将一句话转为结构化 trip brief |
+| Discovery | `discovery` | 目的地资料与来源 |
+| Private context | disabled | 当前使用空 context |
+| Composer | `composer` | 合并资料生成 itinerary |
+| Theme designer | `theme` | 生成自定义视觉 tokens |
 
-生产环境必须为四个启用中的 role 分别配置 peer，不使用共享 Agent fallback。
+Agent 不再写在设定档里，而是透过 Manyfold connect 交握授权：在 `/settings`
+点 Connect，于 Manyfold 自家同意页勾选要分享的 agent，再把四个角色各自指派
+给一个 agent。一个 agent 可以同时担任多个角色。四个角色全部指派完成之前，
+`POST /api/trips/:id/start` 会回 409 `manyfold_reconnect_required`。
 
 ## Manyfold A2A 调用
 
-一次调用遵循固定顺序：
+凭证在 trip 开始时一次解析完成，并以封存状态快照进 Durable Object，整条 DAG
+共用同一组。一次调用遵循固定顺序：
 
-1. 使用 `MF_API_TOKEN` 和 `MF_AGENT_ID` 为目标 peer mint 短期 credential。
-2. 向返回的 `rpcUrl` 发送 JSON-RPC `message/send`，设置
-   `configuration.blocking=false`。
-3. 如果响应已经包含最终 Message，直接解析。
-4. 如果响应是 `submitted` 或 `working` Task，只使用 `tasks/get` 轮询原 task。
-5. 到达终态后读取 artifacts、message 或 status message。
-6. 超时会尝试 `tasks/cancel`；已接受的 task 不会再次提交 prompt。
+1. 向该角色的 `rpcUrl` 发送 JSON-RPC `message/stream`，`Accept` 为
+   `text/event-stream`，并带 `redirect: 'manual'`。
+2. 累积 SSE 的 status-update 与 artifact-update，折回成 `tasks/get` 的信封格式，
+   让串流与复原两条路径共用同一批读取函式。
+3. 只有在 Task 已被接受、串流却中断时，才用 `tasks/get` 复原，且采固定稀疏排程
+   （最多七次，全部受 deadline 箝制）。
+4. 到达终态后读取 artifacts、message 或 status message。
+5. 超时会尝试 `tasks/cancel`。已被接受的 task 永远不会重送 prompt：那一轮已经
+   在计费，重送只会再买一轮。
 
-Peer credential cache 以 API URL、source agent 和 peer ID 共同隔离。401 会清除
-对应 credential；错误消息会截断并清理 bearer/JWT 字样。
+`messageId` 由 trip、task 与 attempt 推导，因此 queue 重投同一次 attempt 会被
+去重，而真正的新 attempt 仍会取得新的一轮。
+
+每个 agent-supplied 的 `rpcUrl` 都会先经过 `validateA2AUrl`：拒绝非 https、
+拒绝 URL 内带凭证、拒绝私有与 link-local 位址（含 cloud metadata）。错误讯息
+会截断并清理 bearer、JWT 与 token/key/secret query 字样。
+
+401 或 403 代表授权被拒。connect 凭证只发一次，没有东西可以重新 mint，因此
+系统只在同一次 invocation 内重读一次连线记录：若 operator 期间重新连线过就用
+新凭证再试一次，否则该 trip 标记为 needs reconnect 并终止，不再消耗 attempt。
 
 默认一次 A2A 调用最多两次 transport attempt，每次最多四分钟。HTTP 408、409、
 425、429、5xx 和明确的临时网络错误可以重试；参数、认证、schema 和无效 JSON

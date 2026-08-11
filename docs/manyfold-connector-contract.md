@@ -4,8 +4,13 @@ Private context is currently disabled in the hosted Travel Ticket flow. The
 contract below is retained as a disabled integration reference and is not called
 by the current Worker.
 
+
+> Transport note: this document describes the *prompt* contract for the
+> disabled `context` role, which is orthogonal to transport. Transport is now
+> the connect handshake plus `message/stream`; see
+> [Manyfold connect](./manyfold-connect.md).
 The disabled Travel Ticket flow calls the user's Manyfold context agent over A2A. The user
-provides the External Client `A2A RPC URL` and `Bearer token` on the Travel
+provided an `A2A RPC URL` and `Bearer token` on the Travel
 Ticket connect page. Manyfold owns all provider integrations.
 
 ## Request
