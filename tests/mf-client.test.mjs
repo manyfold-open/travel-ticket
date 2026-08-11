@@ -258,7 +258,7 @@ test('callA2AAgent: recovery is bounded and never outlives the deadline', () => 
       () => callA2AAgent(CRED, 'hello', { attempts: 1, timeoutMs: 8_000 }),
       /did not complete within its wait budget/,
     )
-    assert.ok(recoveries <= 7, `expected at most 7 recovery requests, saw ${recoveries}`)
+    assert.ok(recoveries <= 16, `expected at most 16 recovery requests, saw ${recoveries}`)
     assert.ok(Date.now() - startedAt < 12_000, 'recovery ran past the call deadline')
   })
 })

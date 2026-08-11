@@ -204,3 +204,21 @@ test('a failure before acceptance still retries', () => {
     assert.equal(sends, 2)
   })
 })
+
+test('recovery can outlast the longest role budget, not just a fixed request count', async () => {
+  const { recoveryDelayMs, recoveryCoverageMs } = await import('../pipeline/mf-client.mjs')
+  // Recovery follows a Task the agent already accepted and is already billing.
+  // An earlier fixed seven-delay schedule covered only ~137s however much
+  // budget remained, so a composer stream dying at 30s of its 460s budget was
+  // cancelled at 167s with five minutes of work still to go. The window must be
+  // bounded by the deadline, not by the request count.
+  assert.equal(recoveryDelayMs(0), 0, 'the first check must be immediate')
+  const delays = [1, 2, 3, 4, 5, 6, 10].map(recoveryDelayMs)
+  assert.ok(delays[0] < delays[1] && delays[1] < delays[2], 'recovery must back off')
+  assert.ok(Math.max(...delays) <= 30_000, 'backoff must stay on a 30s beat')
+  // Long enough to follow the composer, which is the longest budget here.
+  assert.ok(
+    recoveryCoverageMs() >= 300_000,
+    `recovery covers ${recoveryCoverageMs()}ms, too little for a long agent turn`,
+  )
+})

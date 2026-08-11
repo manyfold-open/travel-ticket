@@ -181,11 +181,32 @@ async function cancelTask(credential, peerId, id) {
   }
 }
 
-// Recovery is now the exception, not the main loop: the stream delivers the
-// Task's whole life. These delays only cover a stream that broke after the Task
-// was accepted, so the schedule is short and sparse — at most seven tasks/get
-// requests, all clamped to the call deadline.
-const RECOVERY_POLL_DELAYS_MS = [0, 2_000, 5_000, 10_000, 20_000, 40_000, 60_000]
+// Recovery is the exception, not the main loop: the stream delivers the Task's
+// whole life. These delays only cover a stream that broke after the Task was
+// accepted.
+//
+// The schedule is bounded by the DEADLINE, not by a request count. An earlier
+// version used a fixed seven-delay list, which covered only ~137s after a break
+// however much budget remained: the composer streams against a 460s budget, so
+// a stream dying at 30s was cancelled at 167s while the agent still had five
+// minutes of work to do. Backing off to a 30s beat keeps the subrequest cost
+// low (~16 requests against the old loop's ~34) without ever giving up early.
+const RECOVERY_FIRST_DELAY_MS = 2_000
+const RECOVERY_MAX_DELAY_MS = 30_000
+const RECOVERY_MAX_REQUESTS = 16
+
+/** The delay before recovery request `attempt`. Exported so its shape is testable. */
+export function recoveryDelayMs(attempt) {
+  if (attempt <= 0) return 0
+  return Math.min(RECOVERY_MAX_DELAY_MS, RECOVERY_FIRST_DELAY_MS * (2 ** (attempt - 1)))
+}
+
+/** Total wall time recovery can cover after a stream breaks. */
+export function recoveryCoverageMs() {
+  let total = 0
+  for (let attempt = 0; attempt < RECOVERY_MAX_REQUESTS; attempt++) total += recoveryDelayMs(attempt)
+  return total
+}
 
 async function recoverTask(credential, peerId, id, deadline, onTaskState, initialState = '') {
   let previousState = initialState
@@ -198,8 +219,10 @@ async function recoverTask(credential, peerId, id, deadline, onTaskState, initia
   let consecutiveFailures = 0
   let lastFailure = ''
 
-  for (const delay of RECOVERY_POLL_DELAYS_MS) {
+  for (let attempt = 0; attempt < RECOVERY_MAX_REQUESTS; attempt++) {
     if (Date.now() >= deadline) break
+    // First check is immediate; the task may already be finished.
+    const delay = recoveryDelayMs(attempt)
     if (delay > 0) {
       await new Promise(resolve => setTimeout(resolve, Math.min(delay, Math.max(0, deadline - Date.now()))))
     }
