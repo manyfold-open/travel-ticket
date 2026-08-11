@@ -10,7 +10,15 @@ function withFetch(handler, fn) {
   return fn().finally(() => { globalThis.fetch = original })
 }
 
-test('callMfAgent: mints a peer token then posts JSON-RPC message/send', () => withFetch(async (url, opts) => {
+/** Builds a text/event-stream response out of JSON-RPC results. */
+function sse(results) {
+  return new Response(
+    results.map(result => `data: ${JSON.stringify({ jsonrpc: '2.0', id: 'rpc', result })}\r\n\r\n`).join(''),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  )
+}
+
+test('callMfAgent: mints a peer token then streams the turn over SSE', () => withFetch(async (url, opts) => {
   if (String(url).includes('/a2a/peers/')) {
     assert.match(String(url), /\/agent-self\/a2a\/peers\/agt_peer\/token\?agentId=agt_self$/)
     assert.equal(opts.headers.authorization, 'Bearer self-token')
@@ -18,20 +26,75 @@ test('callMfAgent: mints a peer token then posts JSON-RPC message/send', () => w
   }
   assert.equal(url, 'https://rpc.example/agt_peer')
   assert.equal(opts.headers.authorization, 'Bearer peer-token')
+  assert.equal(opts.headers.accept, 'text/event-stream')
+  // A 3xx must never replay the bearer against an unvalidated host.
+  assert.equal(opts.redirect, 'manual')
   const body = JSON.parse(opts.body)
-  assert.equal(body.method, 'message/send')
-  assert.deepEqual(body.params.configuration, { blocking: false })
+  assert.equal(body.method, 'message/stream')
+  assert.deepEqual(body.params.configuration, { acceptedOutputModes: ['text/plain'] })
   assert.equal(body.params.message.parts[0].text, 'hello')
-  return new Response(JSON.stringify({ result: { parts: [{ text: 'world' }] } }), { status: 200 })
+  return sse([
+    { kind: 'status-update', taskId: 't1', status: { state: 'working' } },
+    { kind: 'artifact-update', taskId: 't1', artifact: { artifactId: 'a', parts: [{ text: 'world' }] } },
+    { kind: 'status-update', taskId: 't1', status: { state: 'completed' }, final: true },
+  ])
 }, async () => {
   const text = await callMfAgent(ENV, 'agt_peer', 'hello')
   assert.equal(text, 'world')
 }))
 
+test('callMfAgent: artifact chunks with append concatenate in arrival order', () => withFetch(async (url) => {
+  if (String(url).includes('/token')) {
+    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+  }
+  return sse([
+    { kind: 'artifact-update', taskId: 't2', artifact: { artifactId: 'a', parts: [{ text: '{"ok":' }] }, append: false },
+    { kind: 'artifact-update', taskId: 't2', artifact: { artifactId: 'a', parts: [{ text: 'true}' }] }, append: true },
+    { kind: 'status-update', taskId: 't2', status: { state: 'completed' }, final: true },
+  ])
+}, async () => {
+  assert.equal(await callMfAgent(ENV, 'agt_chunks', 'hello'), '{"ok":true}')
+}))
+
+test('callMfAgent: reuses one messageId across attempts so a retry cannot double-bill', () => {
+  const ids = []
+  let calls = 0
+  return withFetch(async (url, opts) => {
+    if (String(url).includes('/token')) {
+      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+    }
+    ids.push(JSON.parse(opts.body).params.message.messageId)
+    calls += 1
+    if (calls === 1) return new Response('boom', { status: 502 })
+    return sse([
+      { kind: 'artifact-update', taskId: 't3', artifact: { artifactId: 'a', parts: [{ text: 'ok' }] } },
+      { kind: 'status-update', taskId: 't3', status: { state: 'completed' }, final: true },
+    ])
+  }, async () => {
+    assert.equal(await callMfAgent(ENV, 'agt_ids', 'hello', { attempts: 2, retryDelayMs: 0 }), 'ok')
+    assert.equal(ids.length, 2)
+    assert.equal(ids[0], ids[1], 'a retry must reuse the idempotency key')
+  })
+})
+
+test('callMfAgent: a non-SSE JSON reply is still a usable answer', () => withFetch(async (url) => {
+  if (String(url).includes('/token')) {
+    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+  }
+  // Some deployments, and the local mock, answer a stream request with a plain
+  // JSON-RPC task envelope. That is an answer, not a protocol failure.
+  return new Response(JSON.stringify({ result: { parts: [{ text: 'plain json' }] } }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+}, async () => {
+  assert.equal(await callMfAgent(ENV, 'agt_plain', 'hello'), 'plain json')
+}))
+
 test('callA2AAgent: posts directly to the supplied RPC URL with its bearer token', () => withFetch(async (url, opts) => {
   assert.equal(url, 'https://external.example/rpc')
   assert.equal(opts.headers.authorization, 'Bearer external-token')
-  assert.equal(JSON.parse(opts.body).method, 'message/send')
+  assert.equal(JSON.parse(opts.body).method, 'message/stream')
   return new Response(JSON.stringify({ result: { parts: [{ text: 'ready' }] } }), { status: 200 })
 }, async () => {
   assert.equal(await callA2AAgent({ rpcUrl: 'https://external.example/rpc', token: 'external-token' }, 'ping'), 'ready')
@@ -69,8 +132,9 @@ test('callMfAgent: task state failed → throws with extracted detail', () => wi
   await assert.rejects(() => callMfAgent(ENV, 'agt_failed', 'hello', { attempts: 1 }), /agent crashed/)
 }))
 
-test('callMfAgent: polls an accepted task without submitting the prompt twice', () => withFetch((() => {
-  const methods = []
+const recoveryMethods = []
+test('callMfAgent: recovers an accepted task after a broken stream, never resending', () => withFetch((() => {
+  const methods = recoveryMethods
   return async (url, opts) => {
     if (String(url).includes('/token')) {
       return new Response(JSON.stringify({
@@ -81,10 +145,10 @@ test('callMfAgent: polls an accepted task without submitting the prompt twice', 
     }
     const body = JSON.parse(opts.body)
     methods.push(body.method)
-    if (body.method === 'message/send') {
-      return new Response(JSON.stringify({
-        result: { id: 'task-1', status: { state: 'submitted' } },
-      }), { status: 200 })
+    if (body.method === 'message/stream') {
+      // The stream opens and reports the Task accepted, then ends without ever
+      // reaching a terminal state.
+      return sse([{ kind: 'status-update', taskId: 'task-1', status: { state: 'submitted' } }])
     }
     assert.equal(body.method, 'tasks/get')
     assert.equal(body.params.id, 'task-1')
@@ -101,11 +165,12 @@ test('callMfAgent: polls an accepted task without submitting the prompt twice', 
   const text = await callMfAgent(ENV, 'agt_async', 'hello', {
     attempts: 1,
     timeoutMs: 5_000,
-    pollIntervalMs: 0,
     onTaskState: state => states.push(state),
   })
   assert.equal(text, 'completed asynchronously')
-  assert.deepEqual(states, ['submitted', 'completed'])
+  // One send, then follow the Task that send accepted. Never a second send.
+  assert.deepEqual(recoveryMethods, ['message/stream', 'tasks/get'])
+  assert.deepEqual(states, ['submitted', 'stream-recovering', 'completed'])
 }))
 
 test('callMfAgent: reports invalid credential JSON precisely', () => withFetch(
@@ -196,48 +261,50 @@ test('callMfAgent: timeoutMs is the budget for the whole call, not per attempt',
   })
 })
 
-test('callMfAgent: a timeout reports what the poll loop actually saw', () => {
+test('callMfAgent: a timeout reports what the recovery loop actually saw', () => {
   let polls = 0
   return withFetch(async (url, opts) => {
     if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    if (JSON.parse(opts.body).method === 'message/send') {
-      return new Response(JSON.stringify({ result: { id: 'aat_1', status: { state: 'working' } } }), { status: 200 })
+    if (JSON.parse(opts.body).method === 'message/stream') {
+      return sse([{ kind: 'status-update', taskId: 'aat_1', status: { state: 'working' } }])
     }
     polls += 1
     return new Response('upstream hiccup', { status: 503 })
   }, async () => {
-    // A poll loop that never once read the task's state must say so: a slow
+    // A recovery loop that never once read the task's state must say so: a slow
     // agent and a blind client produce the same bare timeout otherwise.
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_blind', 'hello', { attempts: 1, timeoutMs: 5_000, pollIntervalMs: 0 }),
+      () => callMfAgent(ENV, 'agt_blind', 'hello', { attempts: 1, timeoutMs: 5_000 }),
       (error) => {
         assert.match(error.message, /did not complete within its wait budget/)
-        assert.match(error.message, /waited \d+s over \d+ poll\(s\)/)
-        assert.match(error.message, /Last \d+ poll\(s\) failed: .*503/)
+        assert.match(error.message, /waited \d+s over \d+ recovery request\(s\)/)
+        assert.match(error.message, /Last \d+ recovery request\(s\) failed: .*503/)
         return true
       },
     )
-    assert.ok(polls > 0, 'expected the loop to have attempted polls')
+    assert.ok(polls > 0, 'expected the loop to have attempted recovery')
   })
 })
 
-test('callMfAgent: poll interval backs off instead of spending a subrequest a second', () => {
-  const pollAt = []
-  const startedAt = Date.now()
+test('callMfAgent: recovery is bounded and never outlives the deadline', () => {
+  let recoveries = 0
   return withFetch(async (url, opts) => {
     if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    if (JSON.parse(opts.body).method === 'message/send') {
-      return new Response(JSON.stringify({ result: { id: 'aat_1', status: { state: 'working' } } }), { status: 200 })
+    if (JSON.parse(opts.body).method === 'message/stream') {
+      return sse([{ kind: 'status-update', taskId: 'aat_1', status: { state: 'working' } }])
     }
-    pollAt.push(Date.now() - startedAt)
-    if (pollAt.length < 8) return new Response(JSON.stringify({ result: { status: { state: 'working' } } }), { status: 200 })
-    return new Response(JSON.stringify({ result: { status: { state: 'completed' }, parts: [{ text: 'done' }] } }), { status: 200 })
+    recoveries += 1
+    return new Response(JSON.stringify({ result: { id: 'aat_1', status: { state: 'working' } } }), { status: 200 })
   }, async () => {
-    assert.equal(await callMfAgent(ENV, 'agt_backoff', 'hello', { attempts: 1, pollIntervalMs: 20 }), 'done')
-    assert.equal(pollAt.length, 8)
-    // First polls stay eager so a short turn is still picked up quickly; later
-    // gaps grow, which is what keeps a multi-minute wait off the subrequest cap.
-    const gaps = pollAt.slice(1).map((at, i) => at - pollAt[i])
-    assert.ok(gaps.at(-1) > gaps[0] * 3, `expected backoff, got gaps ${gaps.join(',')}`)
+    const startedAt = Date.now()
+    // The old design polled once a second for the whole budget: ~34 requests
+    // over 280s, and 460 over a composer budget. Recovery is now a fixed sparse
+    // schedule, and every delay is clamped to the deadline.
+    await assert.rejects(
+      () => callMfAgent(ENV, 'agt_bounded', 'hello', { attempts: 1, timeoutMs: 8_000 }),
+      /did not complete within its wait budget/,
+    )
+    assert.ok(recoveries <= 7, `expected at most 7 recovery requests, saw ${recoveries}`)
+    assert.ok(Date.now() - startedAt < 12_000, 'recovery ran past the call deadline')
   })
 })

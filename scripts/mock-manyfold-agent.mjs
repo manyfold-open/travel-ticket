@@ -14,6 +14,27 @@ const json = (res, body, status = 200) => {
 
 const a2a = (res, body) => json(res, { result: { parts: [{ text: JSON.stringify(body) }] } })
 
+// The client now asks for text/event-stream. Answering with a real SSE stream
+// means local development exercises the streaming and artifact-accumulation
+// path rather than the plain-JSON fallback, which is where the bugs live.
+const a2aStream = (res, body) => {
+  const taskId = `mock-${Date.now()}`
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+  })
+  const frame = result => res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: 'rpc', result })}\r\n\r\n`)
+  frame({ kind: 'status-update', taskId, status: { state: 'working' } })
+  // Two chunks with append, so the accumulator is genuinely exercised.
+  const text = JSON.stringify(body)
+  const split = Math.ceil(text.length / 2)
+  frame({ kind: 'artifact-update', taskId, artifact: { artifactId: 'answer', parts: [{ kind: 'text', text: text.slice(0, split) }] }, append: false })
+  frame({ kind: 'artifact-update', taskId, artifact: { artifactId: 'answer', parts: [{ kind: 'text', text: text.slice(split) }] }, append: true })
+  frame({ kind: 'status-update', taskId, status: { state: 'completed' }, final: true })
+  res.end()
+}
+
 function connectorResponse(prompt) {
   const result = payload()
   return result
@@ -171,8 +192,19 @@ export function startMockServer() {
     if (req.method === 'POST' && url.pathname === '/a2a') {
       let body = ''
       for await (const chunk of req) body += chunk
-      const prompt = JSON.parse(body).params?.message?.parts?.map(part => part.text || '').join('\n') || ''
-      a2a(res, agentReply(prompt))
+      const rpc = JSON.parse(body)
+      const prompt = rpc.params?.message?.parts?.map(part => part.text || '').join('\n') || ''
+      if (rpc.method === 'tasks/cancel') {
+        json(res, { result: { id: rpc.params?.id, status: { state: 'canceled' } } })
+        return
+      }
+      if (rpc.method === 'tasks/get') {
+        json(res, { result: { id: rpc.params?.id, status: { state: 'completed' }, parts: [{ text: JSON.stringify(agentReply(prompt)) }] } })
+        return
+      }
+      const wantsStream = (req.headers.accept || '').includes('text/event-stream')
+      if (wantsStream) a2aStream(res, agentReply(prompt))
+      else a2a(res, agentReply(prompt))
       return
     }
     json(res, { ok: true, service: 'local-manyfold-mock' })
