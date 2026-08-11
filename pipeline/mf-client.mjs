@@ -12,7 +12,7 @@ const ERROR_TEXT_LIMIT = 1_000
 // would burn another agent session (and another billed turn) for nothing.
 const MIN_RETRY_ROOM_MS = 20_000
 
-class A2AError extends Error {
+export class A2AError extends Error {
   constructor(message, retryable, refreshCredential = false, retryAfterMs) {
     super(message)
     this.name = 'A2AError'
@@ -30,7 +30,7 @@ function forgetPeerToken(env, peerId) {
   tokenCache.delete(cacheKey(env, peerId))
 }
 
-function safeErrorText(value) {
+export function safeErrorText(value) {
   return String(value ?? '')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/g, '[redacted-token]')
@@ -107,7 +107,7 @@ function normalizeError(error) {
   )
 }
 
-async function fetchTimeout(url, options, timeoutMs) {
+export async function fetchTimeout(url, options, timeoutMs) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {

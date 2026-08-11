@@ -218,7 +218,8 @@ function cookieValue(request) {
   return null
 }
 
-async function isAuthenticated(request, password) {
+/** Exported so the connect routes reuse this gate instead of adding a second one. */
+export async function isAdminAuthenticated(request, password) {
   const token = cookieValue(request)
   if (!token) return false
   const separator = token.lastIndexOf('.')
@@ -243,7 +244,7 @@ async function makeSession(password) {
   return `${payload}.${await sign(payload, password)}`
 }
 
-function adminJson(body, status = 200, headers) {
+export function adminJson(body, status = 200, headers) {
   const responseHeaders = new Headers(headers)
   responseHeaders.set('content-type', 'application/json; charset=utf-8')
   responseHeaders.set('cache-control', 'no-store')
@@ -251,7 +252,7 @@ function adminJson(body, status = 200, headers) {
   return new Response(JSON.stringify(body), { status, headers: responseHeaders })
 }
 
-function sameOrigin(request) {
+export function sameOrigin(request) {
   const fetchSite = request.headers.get('sec-fetch-site')
   if (fetchSite === 'cross-site') return false
   const origin = request.headers.get('origin')
@@ -333,7 +334,7 @@ export async function handleAdminSettings(request, env) {
     return adminJson({ error: 'method not allowed' }, 405, { allow: 'POST, DELETE' })
   }
 
-  if (!await isAuthenticated(request, password)) {
+  if (!await isAdminAuthenticated(request, password)) {
     return adminJson({ error: 'authentication required' }, 401)
   }
 

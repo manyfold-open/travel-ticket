@@ -14,6 +14,7 @@ import {
   handleAdminSettings,
   isAdminSettingsPath,
 } from './admin/settings.mjs'
+import { handleMfConnect, isMfConnectPath } from './routes/mf-connect.mjs'
 import {
   guardTravelTicketAccess,
   handleTravelTicketAccess,
@@ -25,7 +26,7 @@ import { getTripFile } from './storage.mjs'
 
 const TRIP_ID_RE = /^[A-Za-z0-9_-]{8,128}$/
 const PAGE_METHODS = ['GET', 'HEAD']
-const SETTINGS_ASSET_PATHS = new Set(['/settings.css', '/settings.js'])
+const SETTINGS_ASSET_PATHS = new Set(['/settings.css', '/settings.js', '/agent-picker.js'])
 
 function validTripId(value) {
   return typeof value === 'string' && TRIP_ID_RE.test(value)
@@ -179,6 +180,8 @@ export async function handleFetch(request, env) {
   const segments = pathname.split('/').filter(Boolean)
 
   if (isAdminSettingsPath(pathname)) return handleAdminSettings(request, env)
+  // Ahead of the access gate: connecting an agent is how the app becomes ready.
+  if (isMfConnectPath(pathname)) return handleMfConnect(request, env)
 
   if (pathname === '/settings.html' || pathname === '/settings/') {
     if (!PAGE_METHODS.includes(request.method)) return methodNotAllowed(PAGE_METHODS, { json: false })

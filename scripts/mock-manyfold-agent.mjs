@@ -182,9 +182,81 @@ export function agentReply(prompt) {
   return {}
 }
 
+// One in-memory connect handshake, so local development exercises the real
+// device-code flow rather than a shortcut.
+const connectSessions = new Map()
+
 export function startMockServer() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`)
+
+    if (req.method === 'POST' && url.pathname === '/api/connect/a2a/start') {
+      const deviceCode = `mock-device-${Date.now()}`
+      const userCode = 'MOCK-1234'
+      connectSessions.set(deviceCode, { approved: false, userCode })
+      json(res, {
+        requestId: `mock-req-${Date.now()}`,
+        userCode,
+        authUrl: `http://127.0.0.1:${port}/consent?device=${encodeURIComponent(deviceCode)}`,
+        deviceCode,
+        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      })
+      return
+    }
+
+    // Stands in for Manyfold's own consent page, including showing the
+    // confirmation code the operator is supposed to compare.
+    if (req.method === 'GET' && url.pathname === '/consent') {
+      const deviceCode = url.searchParams.get('device') || ''
+      const session = connectSessions.get(deviceCode)
+      if (!session) {
+        res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' })
+        res.end('<p>Unknown authorization request.</p>')
+        return
+      }
+      session.approved = true
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      res.end(`<!doctype html><meta charset="utf-8"><title>Mock Manyfold consent</title>`
+        + `<body style="font:16px system-ui;padding:2rem">`
+        + `<h1>Approved</h1><p>Confirmation code <strong>${session.userCode}</strong></p>`
+        + `<p>Local mock. Return to Travel Ticket; it will pick this up on the next poll.</p>`)
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/connect/a2a/poll') {
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const deviceCode = JSON.parse(raw || '{}').deviceCode
+      const session = connectSessions.get(deviceCode)
+      if (!session) {
+        json(res, { error: { message: 'deviceCode not found' } }, 404)
+        return
+      }
+      if (!session.approved) {
+        json(res, { status: 'pending' })
+        return
+      }
+      // Credentials are released exactly once.
+      connectSessions.delete(deviceCode)
+      json(res, {
+        status: 'approved',
+        userEmail: 'local@mock.test',
+        agents: [{
+          agentId: 'mock-agent',
+          name: 'Local Mock Agent',
+          rpcUrl: `http://127.0.0.1:${port}/a2a`,
+          cardUrl: `http://127.0.0.1:${port}/card`,
+          token: 'local-manyfold-token',
+          expiresAt: null,
+        }],
+      })
+      return
+    }
+
+    if (req.method === 'GET' && url.pathname === '/card') {
+      json(res, { name: 'Local Mock Agent', description: 'Local Manyfold mock agent.' })
+      return
+    }
     if (req.method === 'POST' && url.pathname.startsWith('/api/agent-self/a2a/peers/')) {
       json(res, { token: 'local-manyfold-token', rpcUrl: `http://127.0.0.1:${port}/a2a` })
       return
