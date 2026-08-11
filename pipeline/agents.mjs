@@ -8,9 +8,8 @@ export {
 export {
   MODEL,
   createContext,
-  createMfContext,
+  createAgentContext,
   mfCallOptions,
-  createDirectA2AContext,
   runStructuredJson,
 } from './agents/runtime.mjs'
 export {

@@ -23,7 +23,6 @@ import {
   runLocalDiscoveryAgent as runLocalDiscoveryAgentCore,
   runComposerAgent as runComposerAgentCore,
   runConnectorAgent as runConnectorAgentCore,
-  createMfContext,
   runStructuredJson as runStructuredJsonCore,
   posterPrompt,
 } from './agents.mjs'
@@ -143,7 +142,7 @@ export async function runConnectorAgent(ctx, request) {
 
 export function createLocalConnectorContext() {
   if (!process.env.MF_API_URL || !process.env.MF_API_TOKEN || !process.env.MF_AGENT_ID || !process.env.AGENT_CONTEXT_EXTRACTOR) return null
-  return createMfContext(process.env, 'context')
+  throw new Error('The local connector context is retired: connect agents through /settings.')
 }
 
 // ---------------------------------------------------------------------------

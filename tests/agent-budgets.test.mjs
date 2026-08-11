@@ -1,18 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AGENT_BUDGET_MS, agentBudgetMs, agentCallBudgetMs, DEFAULT_AGENT_BUDGET_MS } from '../pipeline/agent-budgets.mjs'
-import { createMfContext, mfCallOptions } from '../pipeline/agents.mjs'
+import { createAgentContext, mfCallOptions } from '../pipeline/agents.mjs'
 
-const ENV = {
-  MF_API_URL: 'https://api.manyfold.ai/api',
-  MF_API_TOKEN: 'self-token',
-  MF_AGENT_ID: 'agt_self',
-  AGENT_BRIEF: 'agt_brief',
-  AGENT_DISCOVERY: 'agt_discovery',
-  AGENT_CONTEXT_EXTRACTOR: 'agt_context',
-  AGENT_COMPOSER: 'agt_composer',
-  AGENT_THEME_DESIGNER: 'agt_theme',
-}
+const CREDENTIAL = { rpcUrl: 'https://rpc.example/x', token: 'connected-agent-token', label: 'Test agent' }
+const ctxFor = role => createAgentContext(CREDENTIAL, role)
 
 // The bug this file guards: the A2A client waited 240s for the brief while
 // makeSupervisor abandoned it at 120s. Promise.race cannot cancel the call it
@@ -45,17 +37,20 @@ test('agent budgets stay inside the TripJob lease window', () => {
   }
 })
 
-test('createMfContext carries the role budget the supervisor sizes against', () => {
-  assert.equal(createMfContext(ENV, 'brief').timeoutMs, agentCallBudgetMs('Trip Brief Agent'))
-  assert.equal(createMfContext(ENV, 'discovery').timeoutMs, agentCallBudgetMs('Local Discovery Agent'))
-  assert.equal(createMfContext(ENV, 'composer').timeoutMs, agentCallBudgetMs('Itinerary Composer Agent'))
-  assert.equal(createMfContext(ENV, 'theme').timeoutMs, agentCallBudgetMs('Theme Designer Agent'))
-  // All private connectors run through the single context peer.
-  assert.equal(createMfContext(ENV, 'context').timeoutMs, agentCallBudgetMs('Travel Context Agent'))
+test('createAgentContext carries the role budget the supervisor sizes against', () => {
+  assert.equal(ctxFor('brief').timeoutMs, agentCallBudgetMs('Trip Brief Agent'))
+  assert.equal(ctxFor('discovery').timeoutMs, agentCallBudgetMs('Local Discovery Agent'))
+  assert.equal(ctxFor('composer').timeoutMs, agentCallBudgetMs('Itinerary Composer Agent'))
+  assert.equal(ctxFor('theme').timeoutMs, agentCallBudgetMs('Theme Designer Agent'))
+})
+
+test('createAgentContext refuses a role with no usable credential', () => {
+  assert.throws(() => createAgentContext(null, 'brief'), /no usable credential/)
+  assert.throws(() => createAgentContext({ rpcUrl: 'https://x/rpc' }, 'brief'), /no usable credential/)
 })
 
 test('a context spends one role budget in total, however many calls it makes', () => {
-  const ctx = createMfContext(ENV, 'composer')
+  const ctx = ctxFor('composer')
   const first = mfCallOptions(ctx)
   // The language policy in agents/trip.mjs runs a second full call after the
   // first has already spent its budget. Before deadlineAt existed, that second
@@ -77,7 +72,7 @@ test('every role budget still fits inside the TripJob lease', () => {
   // have two billed sessions running at once.
   const LEASE_MS = 10 * 60_000
   for (const role of ['brief', 'discovery', 'composer', 'theme']) {
-    const ctx = createMfContext(ENV, role)
+    const ctx = ctxFor(role)
     assert.ok(
       ctx.deadlineAt - Date.now() < LEASE_MS,
       `${role} budget ${ctx.deadlineAt - Date.now()}ms must stay under the ${LEASE_MS}ms lease`,

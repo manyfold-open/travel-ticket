@@ -8,7 +8,6 @@ import {
   handleTripConnectorsStatus,
 } from './routes/connect.mjs'
 import { handleConfig } from './routes/config.mjs'
-import { handleManyfoldAgentLink, handleManyfoldAgentStatus } from './routes/agent.mjs'
 import { handleStartTrip, handleTripStatus } from './routes/status.mjs'
 import {
   handleAdminSettings,
@@ -79,15 +78,6 @@ async function routeApi(request, env, segments) {
   if (segments.length === 3 && segments[2] === 'start') {
     if (request.method !== 'POST') return methodNotAllowed(['POST'])
     return handleStartTrip(request, env, tripId)
-  }
-
-  if (segments.length === 3 && segments[2] === 'agent') {
-    if (request.method !== 'GET') return methodNotAllowed(['GET'])
-    return handleManyfoldAgentStatus(request, env, tripId)
-  }
-  if (segments.length === 4 && segments[2] === 'agent' && segments[3] === 'link') {
-    if (request.method !== 'POST') return methodNotAllowed(['POST'])
-    return handleManyfoldAgentLink(request, env, tripId)
   }
 
   // Compatibility alias for clients deployed before the route redesign.
