@@ -3,8 +3,6 @@
 // responses are polled with tasks/get so slow peers are never parsed before
 // their final output exists.
 
-const tokenCache = new Map()
-const tokenInflight = new Map()
 const DEFAULT_ATTEMPTS = 2
 const DEFAULT_TIMEOUT_MS = 240_000
 const ERROR_TEXT_LIMIT = 1_000
@@ -20,14 +18,6 @@ export class A2AError extends Error {
     this.refreshCredential = refreshCredential
     this.retryAfterMs = retryAfterMs
   }
-}
-
-function cacheKey(env, peerId) {
-  return `${env.MF_API_URL}:${env.MF_AGENT_ID || 'self'}:${peerId}`
-}
-
-function forgetPeerToken(env, peerId) {
-  tokenCache.delete(cacheKey(env, peerId))
 }
 
 export function safeErrorText(value) {
@@ -117,61 +107,6 @@ export async function fetchTimeout(url, options, timeoutMs) {
   }
 }
 
-async function getPeerToken(env, peerId) {
-  const key = cacheKey(env, peerId)
-  const cached = tokenCache.get(key)
-  if (cached && cached.exp > Date.now() + 30_000) return cached
-
-  const pending = tokenInflight.get(key)
-  if (pending) return pending
-
-  const mint = (async () => {
-    const query = env.MF_AGENT_ID ? `?agentId=${encodeURIComponent(env.MF_AGENT_ID)}` : ''
-    const response = await fetchTimeout(
-      `${env.MF_API_URL}/agent-self/a2a/peers/${encodeURIComponent(peerId)}/token${query}`,
-      {
-        method: 'POST',
-        headers: { authorization: `Bearer ${env.MF_API_TOKEN}`, accept: 'application/json' },
-      },
-      15_000,
-    )
-    if (!response.ok) {
-      const detail = safeErrorText(await response.text())
-      throw new A2AError(
-        `Peer credential mint failed: HTTP ${response.status}${detail ? ` · ${detail}` : ''}`,
-        retryableStatus(response.status),
-        false,
-        retryAfterMs(response),
-      )
-    }
-
-    let body
-    try {
-      body = await response.json()
-    } catch (error) {
-      throw new A2AError(`Peer credential response was not valid JSON. ${safeErrorText(error)}`, true)
-    }
-    if (!body?.token || !body?.rpcUrl) {
-      throw new A2AError('Peer credential response omitted token or rpcUrl.', true)
-    }
-    const parsedExpiry = body.expiresAt ? new Date(body.expiresAt).getTime() : Number.NaN
-    const entry = {
-      token: body.token,
-      rpcUrl: body.rpcUrl,
-      exp: Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + 10 * 60_000,
-    }
-    tokenCache.set(key, entry)
-    return entry
-  })()
-
-  tokenInflight.set(key, mint)
-  try {
-    return await mint
-  } finally {
-    if (tokenInflight.get(key) === mint) tokenInflight.delete(key)
-  }
-}
-
 function taskState(data) {
   return String(data?.result?.status?.state ?? '').trim().toLowerCase().replace(/_/g, '-')
 }
@@ -252,7 +187,7 @@ async function cancelTask(credential, peerId, id) {
 // requests, all clamped to the call deadline.
 const RECOVERY_POLL_DELAYS_MS = [0, 2_000, 5_000, 10_000, 20_000, 40_000, 60_000]
 
-async function recoverTask(env, credential, peerId, id, deadline, onTaskState, refreshCredential, initialState = '') {
+async function recoverTask(credential, peerId, id, deadline, onTaskState, initialState = '') {
   let previousState = initialState
   let pollFailures = 0
   // Diagnostics for the timeout message below. A bare "did not complete" cannot
@@ -294,14 +229,10 @@ async function recoverTask(env, credential, peerId, id, deadline, onTaskState, r
       pollFailures += 1
       consecutiveFailures += 1
       lastFailure = failure.message
-      if (failure.refreshCredential && env && refreshCredential) {
-        forgetPeerToken(env, peerId)
-        try {
-          credential = await refreshCredential()
-        } catch {
-          // The Task already exists. Keep following it rather than resubmitting.
-        }
-      }
+      // A rejected credential used to be re-minted here. A connect grant is
+      // issued once, so there is nothing to refresh: surface it and let the
+      // caller decide whether the operator has reconnected.
+      if (failure.refreshCredential) throw failure
       onTaskState?.('poll-retrying', id, failure.message)
       const backoff = Math.min(retryDelay(failure, pollFailures), Math.max(0, deadline - Date.now()))
       if (backoff > 0) await new Promise(resolve => setTimeout(resolve, backoff))
@@ -493,7 +424,7 @@ async function readTaskStream(response, peerId, onTaskState) {
   return { data: streamTaskData(accumulator), interrupted }
 }
 
-async function executeCredentialAttempt(env, credential, peerId, body, deadline, onTaskState, refreshCredential) {
+async function executeCredentialAttempt(credential, peerId, body, deadline, onTaskState) {
   const response = await fetchTimeout(credential.rpcUrl, {
     method: 'POST',
     headers: {
@@ -537,7 +468,7 @@ async function executeCredentialAttempt(env, credential, peerId, body, deadline,
   if (id) accepted = true
   if (id && (state === 'submitted' || state === 'working' || !state)) {
     if (!interrupted && state) onTaskState?.(state, id)
-    data = await recoverTask(env, credential, peerId, id, deadline, onTaskState, refreshCredential, state)
+    data = await recoverTask(credential, peerId, id, deadline, onTaskState, state)
     state = taskState(data)
   }
 
@@ -554,19 +485,6 @@ async function executeCredentialAttempt(env, credential, peerId, body, deadline,
     throw error
   }
   return output
-}
-
-async function executeAttempt(env, peerId, body, deadline, onTaskState) {
-  const credential = await getPeerToken(env, peerId)
-  return executeCredentialAttempt(
-    env,
-    credential,
-    peerId,
-    body,
-    deadline,
-    onTaskState,
-    () => getPeerToken(env, peerId),
-  )
 }
 
 // One SSE stream carries Task status and artifact updates, replacing the
@@ -599,46 +517,18 @@ function retryDelay(error, attempt, override) {
   return Math.min(4_000, 450 * (2 ** Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250)
 }
 
-export async function callMfAgent(env, peerId, prompt, options = {}) {
-  const body = messageBody(prompt, options.messageId)
-
-  const attempts = Math.min(3, Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS))
-  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-  // timeoutMs is the budget for the whole call, not per attempt: the caller's
-  // supervisor is sized against this number, so N attempts must not be able to
-  // spend N × timeoutMs behind its back.
-  //
-  // deadlineAt is an outer bound shared by every call made against one context.
-  // Without it a caller that retries a whole call (the language policy does)
-  // gets a fresh timeoutMs each time and can run to 2x the role's budget,
-  // straight past the Durable Object lease that was sized against 1x.
-  const deadline = Math.min(Date.now() + timeoutMs, options.deadlineAt ?? Number.POSITIVE_INFINITY)
-  let lastError
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await executeAttempt(env, peerId, body, deadline, options.onTaskState)
-    } catch (error) {
-      const failure = normalizeError(error)
-      lastError = failure
-      if (failure.refreshCredential) forgetPeerToken(env, peerId)
-      // Once the agent accepted the message, the turn has been billed. A retry
-      // would send the same prompt again and buy a second one.
-      if (failure.accepted) throw failure
-      if (!failure.retryable || attempt >= attempts) throw failure
-      const delay = retryDelay(failure, attempt, options.retryDelayMs)
-      // Only retry if a fresh attempt has room to finish inside the budget.
-      if (deadline - Date.now() - delay < MIN_RETRY_ROOM_MS) throw failure
-      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
-    }
-  }
-  throw lastError ?? new A2AError('Manyfold A2A call failed without an error.', false)
-}
-
+/**
+ * One turn against a connected Manyfold agent.
+ *
+ * The credential comes from the connect handshake (worker/mf/store.mjs); this
+ * module no longer knows how to obtain one. The peer-mint path it replaced is
+ * gone entirely rather than left dormant: an unreachable second way to reach an
+ * agent is the surface that rots.
+ */
 export async function callA2AAgent(credential, prompt, options = {}) {
   if (!credential?.rpcUrl || !credential?.token) throw new Error('A2A RPC URL and bearer token are required')
   const body = messageBody(prompt, options.messageId)
-  const attempts = Math.min(2, Math.max(1, options.attempts ?? 1))
+  const attempts = Math.min(3, Math.max(1, options.attempts ?? 1))
   const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
   const peerId = options.peerId ?? 'external Manyfold agent'
   const deadline = Math.min(Date.now() + timeoutMs, options.deadlineAt ?? Number.POSITIVE_INFINITY)
@@ -646,14 +536,7 @@ export async function callA2AAgent(credential, prompt, options = {}) {
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await executeCredentialAttempt(
-        null,
-        credential,
-        peerId,
-        body,
-        deadline,
-        options.onTaskState,
-      )
+      return await executeCredentialAttempt(credential, peerId, body, deadline, options.onTaskState)
     } catch (error) {
       const failure = normalizeError(error)
       lastError = failure
@@ -700,26 +583,6 @@ function repairInnerQuotes(value) {
   return value.replace(/(?<=[\p{L}\p{N}）)】」』])"(?=[\p{L}\p{N}（(【「『])/gu, '\\"')
 }
 
-export async function runMfJson(env, peerId, { system, prompt, schema }, options = {}) {
-  const fullPrompt = [
-    system,
-    prompt,
-    'Respond with ONLY a single JSON object that validates against this JSON Schema — no code fences, no commentary:',
-    JSON.stringify(schema),
-  ].join('\n\n')
-  const output = await callMfAgent(env, peerId, fullPrompt, options)
-  const json = extractJson(output)
-  if (!json) throw new Error('no JSON object in agent response')
-  try {
-    return JSON.parse(json)
-  } catch (strictError) {
-    try {
-      return JSON.parse(repairInnerQuotes(json))
-    } catch {
-      throw new Error(`invalid JSON in agent response: ${safeErrorText(strictError)}`)
-    }
-  }
-}
 
 export async function runA2AJson(credential, { system, prompt, schema }, options = {}) {
   const fullPrompt = [

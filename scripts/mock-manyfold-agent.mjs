@@ -257,10 +257,6 @@ export function startMockServer() {
       json(res, { name: 'Local Mock Agent', description: 'Local Manyfold mock agent.' })
       return
     }
-    if (req.method === 'POST' && url.pathname.startsWith('/api/agent-self/a2a/peers/')) {
-      json(res, { token: 'local-manyfold-token', rpcUrl: `http://127.0.0.1:${port}/a2a` })
-      return
-    }
     if (req.method === 'POST' && url.pathname === '/a2a') {
       let body = ''
       for await (const chunk of req) body += chunk

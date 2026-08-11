@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { callMfAgent, foldStreamResults, extractAgentText, validateA2AUrl } from '../pipeline/mf-client.mjs'
+import { callA2AAgent, foldStreamResults, extractAgentText, validateA2AUrl } from '../pipeline/mf-client.mjs'
 
-const ENV = { MF_API_URL: 'https://api.manyfold.ai/api', MF_API_TOKEN: 'self-token', MF_AGENT_ID: 'agt_self' }
+// Connect hands the app an rpcUrl and a bearer; there is no mint step.
+const CRED = { rpcUrl: 'https://rpc.example/x', token: 'connected-agent-token', label: 'Test agent' }
 
 function withFetch(handler, fn) {
   const original = globalThis.fetch
@@ -28,9 +29,6 @@ const frame = result => `data: ${JSON.stringify({ jsonrpc: '2.0', id: 'rpc', res
 
 function tokenThen(makeResponse) {
   return async (url) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    }
     return makeResponse()
   }
 }
@@ -44,7 +42,7 @@ test('parses frames split across read boundaries', () => {
   return withFetch(
     tokenThen(() => streamOf([whole.slice(0, cut), whole.slice(cut, cut * 2), whole.slice(cut * 2)])),
     async () => {
-      assert.equal(await callMfAgent(ENV, 'agt_split', 'hello'), 'split me')
+      assert.equal(await callA2AAgent(CRED, 'hello'), 'split me')
     },
   )
 })
@@ -55,7 +53,7 @@ test('accepts LF-only frame separators as well as CRLF', () => withFetch(
     + 'data: ' + JSON.stringify({ jsonrpc: '2.0', result: { kind: 'status-update', taskId: 't', status: { state: 'completed' } } }) + '\n\n',
   ])),
   async () => {
-    assert.equal(await callMfAgent(ENV, 'agt_lf', 'hello'), 'lf only')
+    assert.equal(await callA2AAgent(CRED, 'hello'), 'lf only')
   },
 ))
 
@@ -68,7 +66,7 @@ test('ignores the [DONE] sentinel and non-data lines', () => withFetch(
     'data: [DONE]\r\n\r\n',
   ])),
   async () => {
-    assert.equal(await callMfAgent(ENV, 'agt_sentinel', 'hello'), 'clean')
+    assert.equal(await callA2AAgent(CRED, 'hello'), 'clean')
   },
 ))
 
@@ -78,7 +76,7 @@ test('a JSON-RPC error frame fails the call', () => withFetch(
   ])),
   async () => {
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_rpcerr', 'hello', { attempts: 1 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 1 }),
       /internal error/,
     )
   },
@@ -89,7 +87,7 @@ test('a stream that ends with no events at all is retryable, not a phantom task'
   async () => {
     // Nothing was accepted, so no turn is being billed and a resend is safe.
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_empty', 'hello', { attempts: 1 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 1 }),
       /stream ended without A2A events/,
     )
   },
@@ -98,15 +96,12 @@ test('a stream that ends with no events at all is retryable, not a phantom task'
 test('a stream that ends mid-task without a task id does not trigger recovery', () => {
   const methods = []
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    }
     methods.push(JSON.parse(opts.body).method)
     // A status update carrying no task id: nothing to follow up on.
     return streamOf([frame({ kind: 'status-update', status: { state: 'working' } })])
   }, async () => {
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_noid', 'hello', { attempts: 1, timeoutMs: 5_000 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 1, timeoutMs: 5_000 }),
       /stream ended before the Task reached a terminal state/,
     )
     assert.deepEqual(methods, ['message/stream'], 'recovery must not run without a task id')
@@ -175,9 +170,6 @@ test('allows a loopback agent outside production and strips the fragment', () =>
 test('a failed task that was accepted is not retried, however many attempts remain', () => {
   const sends = []
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    }
     const method = JSON.parse(opts.body).method
     if (method === 'message/stream') sends.push(method)
     // The agent ran the turn and it failed. That turn is billed; sending the
@@ -190,7 +182,7 @@ test('a failed task that was accepted is not retried, however many attempts rema
     })])
   }, async () => {
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_burned', 'hello', { attempts: 3, retryDelayMs: 0 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 3, retryDelayMs: 0 }),
       /runtime exited 1/,
     )
     assert.equal(sends.length, 1, 'an accepted task must never be re-sent')
@@ -200,9 +192,6 @@ test('a failed task that was accepted is not retried, however many attempts rema
 test('a failure before acceptance still retries', () => {
   let sends = 0
   return withFetch(async (url) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    }
     sends += 1
     if (sends === 1) return new Response('upstream busy', { status: 503 })
     return streamOf([
@@ -211,7 +200,7 @@ test('a failure before acceptance still retries', () => {
     ])
   }, async () => {
     // Nothing was accepted on the first try, so no turn was billed.
-    assert.equal(await callMfAgent(ENV, 'agt_pre', 'hello', { attempts: 2, retryDelayMs: 0 }), 'recovered')
+    assert.equal(await callA2AAgent(CRED, 'hello', { attempts: 2, retryDelayMs: 0 }), 'recovered')
     assert.equal(sends, 2)
   })
 })

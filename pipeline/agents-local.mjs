@@ -140,10 +140,6 @@ export async function runConnectorAgent(ctx, request) {
   return runConnectorAgentCore(ctx, request)
 }
 
-export function createLocalConnectorContext() {
-  if (!process.env.MF_API_URL || !process.env.MF_API_TOKEN || !process.env.MF_AGENT_ID || !process.env.AGENT_CONTEXT_EXTRACTOR) return null
-  throw new Error('The local connector context is retired: connect agents through /settings.')
-}
 
 // ---------------------------------------------------------------------------
 // Poster Agent — 記念票畫版生圖

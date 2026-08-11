@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { callA2AAgent, callMfAgent, extractAgentText, runMfJson } from '../pipeline/mf-client.mjs'
+import { callA2AAgent, extractAgentText, runA2AJson } from '../pipeline/mf-client.mjs'
 
-const ENV = { MF_API_URL: 'https://api.manyfold.ai/api', MF_API_TOKEN: 'self-token', MF_AGENT_ID: 'agt_self' }
+// Connect hands the app an rpcUrl and a bearer; there is no mint step.
+const CRED = { rpcUrl: 'https://rpc.example/x', token: 'connected-agent-token', label: 'Test agent' }
 
 function withFetch(handler, fn) {
   const original = globalThis.fetch
@@ -18,14 +19,9 @@ function sse(results) {
   )
 }
 
-test('callMfAgent: mints a peer token then streams the turn over SSE', () => withFetch(async (url, opts) => {
-  if (String(url).includes('/a2a/peers/')) {
-    assert.match(String(url), /\/agent-self\/a2a\/peers\/agt_peer\/token\?agentId=agt_self$/)
-    assert.equal(opts.headers.authorization, 'Bearer self-token')
-    return new Response(JSON.stringify({ token: 'peer-token', rpcUrl: 'https://rpc.example/agt_peer' }), { status: 200 })
-  }
-  assert.equal(url, 'https://rpc.example/agt_peer')
-  assert.equal(opts.headers.authorization, 'Bearer peer-token')
+test('callA2AAgent: streams the turn over SSE using the connected credential', () => withFetch(async (url, opts) => {
+  assert.equal(url, CRED.rpcUrl)
+  assert.equal(opts.headers.authorization, `Bearer ${CRED.token}`)
   assert.equal(opts.headers.accept, 'text/event-stream')
   // A 3xx must never replay the bearer against an unvalidated host.
   assert.equal(opts.redirect, 'manual')
@@ -39,30 +35,24 @@ test('callMfAgent: mints a peer token then streams the turn over SSE', () => wit
     { kind: 'status-update', taskId: 't1', status: { state: 'completed' }, final: true },
   ])
 }, async () => {
-  const text = await callMfAgent(ENV, 'agt_peer', 'hello')
+  const text = await callA2AAgent(CRED, 'hello')
   assert.equal(text, 'world')
 }))
 
-test('callMfAgent: artifact chunks with append concatenate in arrival order', () => withFetch(async (url) => {
-  if (String(url).includes('/token')) {
-    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-  }
+test('callA2AAgent: artifact chunks with append concatenate in arrival order', () => withFetch(async (url) => {
   return sse([
     { kind: 'artifact-update', taskId: 't2', artifact: { artifactId: 'a', parts: [{ text: '{"ok":' }] }, append: false },
     { kind: 'artifact-update', taskId: 't2', artifact: { artifactId: 'a', parts: [{ text: 'true}' }] }, append: true },
     { kind: 'status-update', taskId: 't2', status: { state: 'completed' }, final: true },
   ])
 }, async () => {
-  assert.equal(await callMfAgent(ENV, 'agt_chunks', 'hello'), '{"ok":true}')
+  assert.equal(await callA2AAgent(CRED, 'hello'), '{"ok":true}')
 }))
 
-test('callMfAgent: reuses one messageId across attempts so a retry cannot double-bill', () => {
+test('callA2AAgent: reuses one messageId across attempts so a retry cannot double-bill', () => {
   const ids = []
   let calls = 0
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-    }
     ids.push(JSON.parse(opts.body).params.message.messageId)
     calls += 1
     if (calls === 1) return new Response('boom', { status: 502 })
@@ -71,16 +61,13 @@ test('callMfAgent: reuses one messageId across attempts so a retry cannot double
       { kind: 'status-update', taskId: 't3', status: { state: 'completed' }, final: true },
     ])
   }, async () => {
-    assert.equal(await callMfAgent(ENV, 'agt_ids', 'hello', { attempts: 2, retryDelayMs: 0 }), 'ok')
+    assert.equal(await callA2AAgent(CRED, 'hello', { attempts: 2, retryDelayMs: 0 }), 'ok')
     assert.equal(ids.length, 2)
     assert.equal(ids[0], ids[1], 'a retry must reuse the idempotency key')
   })
 })
 
-test('callMfAgent: a non-SSE JSON reply is still a usable answer', () => withFetch(async (url) => {
-  if (String(url).includes('/token')) {
-    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
-  }
+test('callA2AAgent: a non-SSE JSON reply is still a usable answer', () => withFetch(async (url) => {
   // Some deployments, and the local mock, answer a stream request with a plain
   // JSON-RPC task envelope. That is an answer, not a protocol failure.
   return new Response(JSON.stringify({ result: { parts: [{ text: 'plain json' }] } }), {
@@ -88,7 +75,7 @@ test('callMfAgent: a non-SSE JSON reply is still a usable answer', () => withFet
     headers: { 'content-type': 'application/json' },
   })
 }, async () => {
-  assert.equal(await callMfAgent(ENV, 'agt_plain', 'hello'), 'plain json')
+  assert.equal(await callA2AAgent(CRED, 'hello'), 'plain json')
 }))
 
 test('callA2AAgent: posts directly to the supplied RPC URL with its bearer token', () => withFetch(async (url, opts) => {
@@ -100,49 +87,39 @@ test('callA2AAgent: posts directly to the supplied RPC URL with its bearer token
   assert.equal(await callA2AAgent({ rpcUrl: 'https://external.example/rpc', token: 'external-token' }, 'ping'), 'ready')
 }))
 
-test('callMfAgent: retries only when the caller opts in', () => withFetch((() => {
+test('callA2AAgent: retries only when the caller opts in', () => withFetch((() => {
   let calls = 0
   return async (url) => {
-    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     calls++
     if (calls === 1) return new Response('boom', { status: 502 })
     return new Response(JSON.stringify({ result: { parts: [{ text: 'ok' }] } }), { status: 200 })
   }
 })(), async () => {
-  const text = await callMfAgent(ENV, 'agt_retry', 'hello', { attempts: 2, retryDelayMs: 0 })
+  const text = await callA2AAgent(CRED, 'hello', { attempts: 2, retryDelayMs: 0 })
   assert.equal(text, 'ok')
 }))
 
-test('callMfAgent: 4xx fails fast, no retry', () => {
+test('callA2AAgent: 4xx fails fast, no retry', () => {
   let rpcCalls = 0
   return withFetch(async (url) => {
-    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     rpcCalls++
     return new Response('bad request', { status: 400 })
   }, async () => {
-    await assert.rejects(() => callMfAgent(ENV, 'agt_4xx', 'hello'), /400/)
+    await assert.rejects(() => callA2AAgent(CRED, 'hello'), /400/)
     assert.equal(rpcCalls, 1)
   })
 })
 
-test('callMfAgent: task state failed → throws with extracted detail', () => withFetch(async (url) => {
-  if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+test('callA2AAgent: task state failed → throws with extracted detail', () => withFetch(async (url) => {
   return new Response(JSON.stringify({ result: { status: { state: 'failed', message: { parts: [{ text: 'agent crashed' }] } } } }), { status: 200 })
 }, async () => {
-  await assert.rejects(() => callMfAgent(ENV, 'agt_failed', 'hello', { attempts: 1 }), /agent crashed/)
+  await assert.rejects(() => callA2AAgent(CRED, 'hello', { attempts: 1 }), /agent crashed/)
 }))
 
 const recoveryMethods = []
-test('callMfAgent: recovers an accepted task after a broken stream, never resending', () => withFetch((() => {
+test('callA2AAgent: recovers an accepted task after a broken stream, never resending', () => withFetch((() => {
   const methods = recoveryMethods
   return async (url, opts) => {
-    if (String(url).includes('/token')) {
-      return new Response(JSON.stringify({
-        token: 'task-token',
-        rpcUrl: 'https://rpc.example/task',
-        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-      }), { status: 200 })
-    }
     const body = JSON.parse(opts.body)
     methods.push(body.method)
     if (body.method === 'message/stream') {
@@ -162,7 +139,7 @@ test('callMfAgent: recovers an accepted task after a broken stream, never resend
   }
 })(), async () => {
   const states = []
-  const text = await callMfAgent(ENV, 'agt_async', 'hello', {
+  const text = await callA2AAgent(CRED, 'hello', {
     attempts: 1,
     timeoutMs: 5_000,
     onTaskState: state => states.push(state),
@@ -173,48 +150,30 @@ test('callMfAgent: recovers an accepted task after a broken stream, never resend
   assert.deepEqual(states, ['submitted', 'stream-recovering', 'completed'])
 }))
 
-test('callMfAgent: reports invalid credential JSON precisely', () => withFetch(
-  async () => new Response('{"token":', { status: 200 }),
-  async () => {
-    await assert.rejects(
-      () => callMfAgent(ENV, 'agt_bad_credential_json', 'hello', { attempts: 1 }),
-      /credential response was not valid JSON/,
-    )
-  },
-))
-
-test('callMfAgent: reports invalid RPC JSON precisely', () => withFetch(async (url) => {
-  if (String(url).includes('/token')) {
-    return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/bad-json' }), { status: 200 })
-  }
+test('callA2AAgent: reports invalid RPC JSON precisely', () => withFetch(async (url) => {
   return new Response('{"result":', { status: 200 })
 }, async () => {
   await assert.rejects(
-    () => callMfAgent(ENV, 'agt_bad_rpc_json', 'hello', { attempts: 1 }),
+    () => callA2AAgent(CRED, 'hello', { attempts: 1 }),
     /returned invalid JSON/,
   )
 }))
 
-test('callMfAgent: isolates cached peer tokens by source agent identity', () => {
-  const mintedFor = []
+test('callA2AAgent: sends only the credential it was handed', () => {
+  // The peer-token cache is gone, and with it the risk of one role picking up
+  // another's token. Each call carries exactly the bearer it was given; the
+  // per-role isolation property now lives in worker/mf/store.mjs.
+  const seen = []
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) {
-      const source = new URL(String(url)).searchParams.get('agentId')
-      mintedFor.push(source)
-      return new Response(JSON.stringify({
-        token: `token-${source}`,
-        rpcUrl: `https://rpc.example/${source}`,
-      }), { status: 200 })
-    }
-    return new Response(JSON.stringify({
-      result: { parts: [{ text: opts.headers.authorization }] },
-    }), { status: 200 })
+    seen.push({ url: String(url), authorization: opts.headers.authorization })
+    return new Response(JSON.stringify({ result: { parts: [{ text: 'ok' }] } }), { status: 200 })
   }, async () => {
-    const first = await callMfAgent(ENV, 'agt_shared_peer', 'one', { attempts: 1 })
-    const second = await callMfAgent({ ...ENV, MF_AGENT_ID: 'agt_other' }, 'agt_shared_peer', 'two', { attempts: 1 })
-    assert.equal(first, 'Bearer token-agt_self')
-    assert.equal(second, 'Bearer token-agt_other')
-    assert.deepEqual(mintedFor, ['agt_self', 'agt_other'])
+    await callA2AAgent(CRED, 'one', { attempts: 1 })
+    await callA2AAgent({ rpcUrl: 'https://rpc.example/other', token: 'other-token' }, 'two', { attempts: 1 })
+    assert.deepEqual(seen, [
+      { url: CRED.rpcUrl, authorization: `Bearer ${CRED.token}` },
+      { url: 'https://rpc.example/other', authorization: 'Bearer other-token' },
+    ])
   })
 })
 
@@ -225,46 +184,42 @@ test('extractAgentText: prefers result.parts, then artifacts, then status.messag
   assert.equal(extractAgentText({}), '{}')
 })
 
-test('runMfJson: injects schema instructions into the prompt and parses the JSON reply', () => withFetch(async (url, opts) => {
-  if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+test('runA2AJson: injects schema instructions into the prompt and parses the JSON reply', () => withFetch(async (url, opts) => {
   const body = JSON.parse(opts.body)
   const sentPrompt = body.params.message.parts[0].text
   assert.match(sentPrompt, /system prompt/)
   assert.match(sentPrompt, /JSON Schema/)
   return new Response(JSON.stringify({ result: { parts: [{ text: '```json\n{"ok":true}\n```' }] } }), { status: 200 })
 }, async () => {
-  const parsed = await runMfJson(ENV, 'agt_json', { system: 'system prompt', prompt: 'do the thing', schema: { type: 'object' } })
+  const parsed = await runA2AJson(CRED, { system: 'system prompt', prompt: 'do the thing', schema: { type: 'object' } })
   assert.deepEqual(parsed, { ok: true })
 }))
 
-test('runMfJson: throws when reply has no JSON object', () => withFetch(async (url) => {
-  if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
+test('runA2AJson: throws when reply has no JSON object', () => withFetch(async (url) => {
   return new Response(JSON.stringify({ result: { parts: [{ text: 'no json here' }] } }), { status: 200 })
 }, async () => {
-  await assert.rejects(() => runMfJson(ENV, 'agt_no_json', { system: 's', prompt: 'p', schema: {} }), /no JSON object/)
+  await assert.rejects(() => runA2AJson(CRED, { system: 's', prompt: 'p', schema: {} }), /no JSON object/)
 }))
 
-test('callMfAgent: timeoutMs is the budget for the whole call, not per attempt', () => {
+test('callA2AAgent: timeoutMs is the budget for the whole call, not per attempt', () => {
   let rpcCalls = 0
   return withFetch(async (url) => {
-    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     rpcCalls++
     return new Response('overloaded', { status: 503 })
   }, async () => {
     // A retryable failure that leaves no room for a second attempt must surface
     // instead of spending another agent session past the caller's deadline.
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_budget', 'hello', { attempts: 3, timeoutMs: 5_000, retryDelayMs: 0 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 3, timeoutMs: 5_000, retryDelayMs: 0 }),
       /503/,
     )
     assert.equal(rpcCalls, 1)
   })
 })
 
-test('callMfAgent: a timeout reports what the recovery loop actually saw', () => {
+test('callA2AAgent: a timeout reports what the recovery loop actually saw', () => {
   let polls = 0
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     if (JSON.parse(opts.body).method === 'message/stream') {
       return sse([{ kind: 'status-update', taskId: 'aat_1', status: { state: 'working' } }])
     }
@@ -274,7 +229,7 @@ test('callMfAgent: a timeout reports what the recovery loop actually saw', () =>
     // A recovery loop that never once read the task's state must say so: a slow
     // agent and a blind client produce the same bare timeout otherwise.
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_blind', 'hello', { attempts: 1, timeoutMs: 5_000 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 1, timeoutMs: 5_000 }),
       (error) => {
         assert.match(error.message, /did not complete within its wait budget/)
         assert.match(error.message, /waited \d+s over \d+ recovery request\(s\)/)
@@ -286,10 +241,9 @@ test('callMfAgent: a timeout reports what the recovery loop actually saw', () =>
   })
 })
 
-test('callMfAgent: recovery is bounded and never outlives the deadline', () => {
+test('callA2AAgent: recovery is bounded and never outlives the deadline', () => {
   let recoveries = 0
   return withFetch(async (url, opts) => {
-    if (String(url).includes('/token')) return new Response(JSON.stringify({ token: 't', rpcUrl: 'https://rpc.example/x' }), { status: 200 })
     if (JSON.parse(opts.body).method === 'message/stream') {
       return sse([{ kind: 'status-update', taskId: 'aat_1', status: { state: 'working' } }])
     }
@@ -301,7 +255,7 @@ test('callMfAgent: recovery is bounded and never outlives the deadline', () => {
     // over 280s, and 460 over a composer budget. Recovery is now a fixed sparse
     // schedule, and every delay is clamped to the deadline.
     await assert.rejects(
-      () => callMfAgent(ENV, 'agt_bounded', 'hello', { attempts: 1, timeoutMs: 8_000 }),
+      () => callA2AAgent(CRED, 'hello', { attempts: 1, timeoutMs: 8_000 }),
       /did not complete within its wait budget/,
     )
     assert.ok(recoveries <= 7, `expected at most 7 recovery requests, saw ${recoveries}`)

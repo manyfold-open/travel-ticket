@@ -111,7 +111,7 @@ LLM backend 自動選擇（也可用 `--backend=sdk|cli` 強制指定）：
 ## Private Context
 
 目前版本不使用 Gmail、Calendar、Notion 或 Composio context，也不要求使用者連接
-Manyfold External Client。行程只根據使用者請求、目的地調研和已配置的 pipeline agents
+Manyfold 私人帳戶連線。行程只根據使用者請求、目的地調研和已連線的 pipeline agents
 生成；context stage 會明確記錄為 `skipped` 並使用空資料。
 
 Private context 相關連線目前停用；Travel Ticket 不會直接保存 Composio credential。
